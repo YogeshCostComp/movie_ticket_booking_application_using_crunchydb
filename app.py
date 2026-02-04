@@ -5,10 +5,28 @@ import psycopg2.errorcodes
 import time
 import logging
 import random
+import os
 
 
 app = Flask(__name__)
 app.config["files"] = "."
+
+# Database configuration from environment variables
+DB_HOST = os.environ.get('DB_HOST', '127.0.0.1')
+DB_PORT = os.environ.get('DB_PORT', '5432')
+DB_NAME = os.environ.get('DB_NAME', 'hippo')
+DB_USER = os.environ.get('DB_USER', 'hippo')
+DB_PASSWORD = os.environ.get('DB_PASSWORD', 'datalake')
+
+def get_db_connection():
+    """Create a database connection using environment variables."""
+    return psycopg2.connect(
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        host=DB_HOST,
+        port=DB_PORT
+    )
 
 global data_seats
 
@@ -32,11 +50,11 @@ def home():
 
 @app.route("/create")
 def create_table():
-	conn = psycopg2.connect(database="hippo", user="hippo", password="datalake", host="127.0.0.1", port="5432")
+	conn = get_db_connection()
 	for k,v in data_seats.items():
 		insert_seats(k, v, conn)
 	conn.close()
-	return "<h1>Table Created, click <a href='http://localhost:5000'>here</a> to open the app</h1>"
+	return "<h1>Table Created, click <a href='/'>here</a> to open the app</h1>"
 
 def insert_seats(seat_no, status, conn):
 	with conn.cursor() as cur:
@@ -66,7 +84,7 @@ def update_seats():
 		print(seats)
 		seats_string = ','.join(seats)
 		#print(x)
-		conn = psycopg2.connect(database="cpdemo", user="hippo", password="datalake", host="127.0.0.1", port="5432")
+		conn = get_db_connection()
 		update(seats,conn)
 		with conn.cursor() as cur:
 			cur.execute("INSERT INTO userdetails (phone_no, name, seats) VALUES (%s,%s,%s)", (number,name,seats_string))
@@ -87,7 +105,7 @@ def update(seats,conn):
 def usersDetails():
     temp = {}
     arr = []
-    conn = psycopg2.connect(database="cpdemo", user="hippo", password="datalake", host="127.0.0.1", port="5432")
+    conn = get_db_connection()
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM userdetails")
         rows = cur.fetchall()
@@ -109,7 +127,7 @@ def details():
 @app.route("/get")
 def staus():
 	data_new={}
-	conn = psycopg2.connect(database="cpdemo", user="hippo", password="datalake", host="127.0.0.1", port="5432")
+	conn = get_db_connection()
 	with conn.cursor() as cur:
 		cur.execute("SELECT * FROM screen")
 		logging.debug("print_balances(): status message: {}".format(cur.statusmessage))

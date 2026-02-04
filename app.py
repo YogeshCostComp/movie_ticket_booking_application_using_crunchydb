@@ -6,7 +6,18 @@ import time
 import logging
 import random
 import os
+import sys
 
+
+# Configure logging for IBM Cloud Code Engine
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["files"] = "."
@@ -17,16 +28,31 @@ DB_PORT = os.environ.get('DB_PORT', '5432')
 DB_NAME = os.environ.get('DB_NAME', 'hippo')
 DB_USER = os.environ.get('DB_USER', 'hippo')
 DB_PASSWORD = os.environ.get('DB_PASSWORD', 'datalake')
+DB_SSLMODE = os.environ.get('DB_SSLMODE', 'prefer')
 
 def get_db_connection():
     """Create a database connection using environment variables."""
-    return psycopg2.connect(
-        database=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        host=DB_HOST,
-        port=DB_PORT
-    )
+    logger.info(f"Connecting to database at {DB_HOST}:{DB_PORT}/{DB_NAME}")
+    try:
+        conn = psycopg2.connect(
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            host=DB_HOST,
+            port=DB_PORT,
+            sslmode=DB_SSLMODE
+        )
+        logger.info("Database connection successful")
+        return conn
+    except Exception as e:
+        logger.error(f"Database connection failed: {e}")
+        raise
+
+# Health check endpoint for Code Engine
+@app.route("/health")
+def health():
+    logger.info("Health check requested")
+    return jsonify({"status": "healthy"}), 200
 
 global data_seats
 
@@ -140,8 +166,7 @@ def staus():
 	return x
 
     
-
-
 if __name__ == '__main__':
-   app.run(host="0.0.0.0", port=5000, debug=True)
-
+    port = int(os.environ.get('PORT', 8080))  # Code Engine uses PORT env var
+    logger.info(f"Starting Movie Ticket Booking App on port {port}")
+    app.run(host="0.0.0.0", port=port, debug=False)

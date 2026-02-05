@@ -216,8 +216,8 @@ def get_error_logs():
         hours = data.get('hours', 1)
         limit = data.get('limit', 50)
         
-        start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
         
         query = f"source logs | filter $d.message contains 'error' OR $d.message contains 'Error' OR $d.message contains 'ERROR' OR $d.message contains 'Traceback' | limit {limit}"
         logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
@@ -245,8 +245,8 @@ def query_logs():
         hours = data.get('hours', 1)
         limit = data.get('limit', 100)
         
-        start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
         
         logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
         

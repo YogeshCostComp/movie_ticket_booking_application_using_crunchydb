@@ -23,6 +23,25 @@ CLOUD_LOGS_REGION = os.environ.get('CLOUD_LOGS_REGION', 'us-south')
 APP_URL = os.environ.get('APP_URL', 'https://movie-ticket-app.260duz8s94f7.us-south.codeengine.appdomain.cloud')
 DB_HOST = os.environ.get('DB_HOST', 'ep-dry-breeze-aig3i25p-pooler.c-4.us-east-1.aws.neon.tech')
 
+@app.route('/')
+def root():
+    """Root endpoint - health check for the MCP server itself"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'SRE MCP Server',
+        'version': '1.0.0',
+        'endpoints': [
+            '/tools/check_app_health',
+            '/tools/check_database_health',
+            '/tools/get_recent_logs',
+            '/tools/get_error_logs',
+            '/tools/query_logs',
+            '/tools/get_seat_status',
+            '/tools/get_bookings',
+            '/tools/get_system_status'
+        ]
+    })
+
 # Token cache
 _token_cache = {
     'token': None,

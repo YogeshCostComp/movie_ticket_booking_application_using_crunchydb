@@ -89,13 +89,15 @@ def query_cloud_logs(query, start_date=None, end_date=None, limit=100):
     if not end_date:
         end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
     
-    url = f"https://{CLOUD_LOGS_INSTANCE_ID}.api.{CLOUD_LOGS_REGION}.logs.cloud.ibm.com/v1/query"
+    # Correct URL format for IBM Cloud Logs
+    url = f"https://api.{CLOUD_LOGS_REGION}.logs.cloud.ibm.com/v1/dataprime/query/run"
     
     payload = {
         "query": query,
         "metadata": {
             "start_date": start_date,
             "end_date": end_date,
+            "default_source": "<v1>frequent-search",
             "tier": "frequent_search",
             "syntax": "dataprime",
             "limit": limit
@@ -107,7 +109,7 @@ def query_cloud_logs(query, start_date=None, end_date=None, limit=100):
         headers={
             'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json',
-            'Accept': 'text/event-stream'
+            'IBM-Cloud-Logs-Instance-Id': CLOUD_LOGS_INSTANCE_ID
         },
         json=payload
     )

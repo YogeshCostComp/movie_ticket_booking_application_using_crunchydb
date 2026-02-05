@@ -383,6 +383,254 @@ def get_system_status():
     return jsonify(status)
 
 
+# ============== MCP Protocol Support ==============
+# MCP uses JSON-RPC 2.0 over HTTP/SSE
+
+MCP_TOOLS = [
+    {
+        "name": "check_app_health",
+        "description": "Check the health status of the Movie Ticket Booking application",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "check_database_health",
+        "description": "Check the database connectivity and health status",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_recent_logs",
+        "description": "Get recent application logs from IBM Cloud Logs",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of logs to return",
+                    "default": 20
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_error_logs",
+        "description": "Get error logs from the application",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "Number of hours to look back",
+                    "default": 1
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of logs to return",
+                    "default": 50
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "query_logs",
+        "description": "Query logs with custom DataPrime query",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "DataPrime query string",
+                    "default": "source logs | limit 10"
+                },
+                "hours": {
+                    "type": "integer",
+                    "description": "Number of hours to look back",
+                    "default": 1
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results",
+                    "default": 100
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_system_status",
+        "description": "Get comprehensive system status including app health, database, and recent errors",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    }
+]
+
+@app.route('/mcp', methods=['POST'])
+def mcp_endpoint():
+    """MCP JSON-RPC endpoint for watsonx Orchestrate"""
+    try:
+        data = request.get_json()
+        method = data.get('method', '')
+        params = data.get('params', {})
+        request_id = data.get('id', 1)
+        
+        logger.info(f"MCP Request: method={method}, params={params}")
+        
+        if method == 'initialize':
+            return jsonify({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": {}
+                    },
+                    "serverInfo": {
+                        "name": "sre-mcp-server",
+                        "version": "1.0.0"
+                    }
+                }
+            })
+        
+        elif method == 'tools/list':
+            return jsonify({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "tools": MCP_TOOLS
+                }
+            })
+        
+        elif method == 'tools/call':
+            tool_name = params.get('name', '')
+            tool_args = params.get('arguments', {})
+            
+            # Execute the tool
+            result = execute_mcp_tool(tool_name, tool_args)
+            
+            return jsonify({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(result, indent=2)
+                        }
+                    ]
+                }
+            })
+        
+        else:
+            return jsonify({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32601,
+                    "message": f"Method not found: {method}"
+                }
+            })
+            
+    except Exception as e:
+        logger.error(f"MCP Error: {e}")
+        return jsonify({
+            "jsonrpc": "2.0",
+            "id": request_id if 'request_id' in dir() else 1,
+            "error": {
+                "code": -32603,
+                "message": str(e)
+            }
+        })
+
+
+def execute_mcp_tool(tool_name, args):
+    """Execute an MCP tool and return the result"""
+    try:
+        if tool_name == 'check_app_health':
+            response = requests.get(APP_URL, timeout=10)
+            return {
+                "status": "healthy" if response.status_code == 200 else "unhealthy",
+                "app_url": APP_URL,
+                "response_time_ms": response.elapsed.total_seconds() * 1000,
+                "message": "Movie Ticket App is running and healthy" if response.status_code == 200 else f"App returned status {response.status_code}"
+            }
+        
+        elif tool_name == 'check_database_health':
+            try:
+                response = requests.get(f"{APP_URL}/seats", timeout=10)
+                return {
+                    "status": "healthy" if response.status_code == 200 else "unhealthy",
+                    "message": "Database connection is working" if response.status_code == 200 else "Database connection issue detected"
+                }
+            except Exception as e:
+                return {"status": "unhealthy", "message": str(e)}
+        
+        elif tool_name == 'get_recent_logs':
+            limit = args.get('limit', 20)
+            query = f"source logs | limit {limit}"
+            logs = query_cloud_logs(query, limit=limit)
+            return {"status": "success", "query": query, "logs": logs}
+        
+        elif tool_name == 'get_error_logs':
+            hours = args.get('hours', 1)
+            limit = args.get('limit', 50)
+            start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            query = f"source logs | filter $m.severity == 'ERROR' | limit {limit}"
+            logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
+            return {"status": "success", "query": query, "time_range": f"Last {hours} hour(s)", "logs": logs}
+        
+        elif tool_name == 'query_logs':
+            query = args.get('query', 'source logs | limit 10')
+            hours = args.get('hours', 1)
+            limit = args.get('limit', 100)
+            start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
+            return {"status": "success", "query": query, "time_range": f"Last {hours} hour(s)", "logs": logs}
+        
+        elif tool_name == 'get_system_status':
+            # Check app health
+            try:
+                app_response = requests.get(APP_URL, timeout=10)
+                app_status = {"status": "healthy" if app_response.status_code == 200 else "unhealthy"}
+            except Exception as e:
+                app_status = {"status": "unhealthy", "error": str(e)}
+            
+            # Check database
+            try:
+                db_response = requests.get(f"{APP_URL}/seats", timeout=10)
+                db_status = {"status": "healthy" if db_response.status_code == 200 else "unhealthy"}
+            except Exception as e:
+                db_status = {"status": "unhealthy", "error": str(e)}
+            
+            overall = "HEALTHY" if app_status["status"] == "healthy" and db_status["status"] == "healthy" else "DEGRADED"
+            
+            return {
+                "overall_status": overall,
+                "app": app_status,
+                "database": db_status,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        else:
+            return {"error": f"Unknown tool: {tool_name}"}
+            
+    except Exception as e:
+        return {"error": str(e)}
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     logger.info(f"Starting MCP Server on port {port}")

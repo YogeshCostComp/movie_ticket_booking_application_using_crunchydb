@@ -1,0 +1,284 @@
+openapi: 3.0.0
+info:
+  title: SRE Agent Tools
+  description: Tools for Site Reliability Engineering operations on Movie Ticket App
+  version: 1.0.0
+
+servers:
+  - url: https://movie-ticket-app.260duz8s94f7.us-south.codeengine.appdomain.cloud
+    description: Movie Ticket App
+  - url: https://0e3d840c-d8fd-40bc-a27c-c35d762ec2d7.api.us-south.logs.cloud.ibm.com
+    description: IBM Cloud Logs API
+  - url: https://iam.cloud.ibm.com
+    description: IBM IAM Token Service
+
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: For app endpoints, use 'apikey YOUR_API_KEY'. For Cloud Logs, first generate a Bearer token then use 'Bearer YOUR_TOKEN'
+
+security:
+  - apiKeyAuth: []
+
+paths:
+  /identity/token:
+    post:
+      operationId: generateBearerToken
+      summary: Generate Bearer Token
+      description: |
+        CALL THIS FIRST before querying logs! Exchanges an IBM Cloud API key for a Bearer token.
+        The Bearer token is required for all Cloud Logs API calls.
+        Store the returned access_token and use it as 'Bearer <token>' in Authorization header.
+        Tokens expire after 1 hour.
+      servers:
+        - url: https://iam.cloud.ibm.com
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - grant_type
+                - apikey
+              properties:
+                grant_type:
+                  type: string
+                  description: Must be 'urn:ibm:params:oauth:grant-type:apikey'
+                  example: "urn:ibm:params:oauth:grant-type:apikey"
+                  default: "urn:ibm:params:oauth:grant-type:apikey"
+                apikey:
+                  type: string
+                  description: Your IBM Cloud API key
+                  example: "your-api-key-here"
+      responses:
+        '200':
+          description: Token generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                    description: The Bearer token to use for Cloud Logs API calls
+                  token_type:
+                    type: string
+                    example: "Bearer"
+                  expires_in:
+                    type: integer
+                    description: Token validity in seconds (typically 3600)
+                  expiration:
+                    type: integer
+                    description: Token expiration timestamp
+        '400':
+          description: Invalid API key
+
+  /health:
+    get:
+      operationId: checkAppHealth
+      summary: Check Application Health
+      description: Checks if the movie ticket booking application is running and healthy
+      servers:
+        - url: https://movie-ticket-app.260duz8s94f7.us-south.codeengine.appdomain.cloud
+      responses:
+        '200':
+          description: Application is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+        '500':
+          description: Application is unhealthy
+
+  /get:
+    get:
+      operationId: getSeatStatus
+      summary: Get Seat Availability
+      description: Retrieves current seat availability status from the database. Also verifies database connectivity.
+      servers:
+        - url: https://movie-ticket-app.260duz8s94f7.us-south.codeengine.appdomain.cloud
+      responses:
+        '200':
+          description: Seat data retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+        '500':
+          description: Database connection error
+
+  /getUsersDetails:
+    get:
+      operationId: getBookingDetails
+      summary: Get All Bookings
+      description: Retrieves all user booking details including phone numbers, names, and reserved seats
+      servers:
+        - url: https://movie-ticket-app.260duz8s94f7.us-south.codeengine.appdomain.cloud
+      responses:
+        '200':
+          description: Booking data retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    phone_no:
+                      type: string
+                    name:
+                      type: string
+                    seats:
+                      type: string
+
+  /v1/query:
+    post:
+      operationId: queryLogs
+      summary: Query Application Logs
+      description: |
+        Search and query logs from IBM Cloud Logs using DataPrime syntax. 
+        Use this to find errors, check database connectivity issues, or analyze application behavior.
+        Example queries:
+        - source logs | limit 10 (get recent logs)
+        - source logs | filter $d.message contains 'error' (find errors)
+        - source logs | filter $d.label.Project == 'movie-ticket-project' (filter by project)
+      servers:
+        - url: https://0e3d840c-d8fd-40bc-a27c-c35d762ec2d7.api.us-south.logs.cloud.ibm.com
+      security:
+        - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query
+              properties:
+                query:
+                  type: string
+                  description: DataPrime query syntax. Example - source logs | filter $d.message contains 'error' | limit 20
+                  example: "source logs | limit 10"
+                metadata:
+                  type: object
+                  properties:
+                    start_date:
+                      type: string
+                      format: date-time
+                      description: Start date in ISO 8601 format
+                      example: "2026-02-05T00:00:00Z"
+                    end_date:
+                      type: string
+                      format: date-time
+                      description: End date in ISO 8601 format
+                      example: "2026-02-05T23:59:59Z"
+                    tier:
+                      type: string
+                      description: Log tier to query
+                      enum: [frequent_search, archive]
+                      default: frequent_search
+                    syntax:
+                      type: string
+                      description: Query syntax type
+                      enum: [dataprime, lucene]
+                      default: dataprime
+                    limit:
+                      type: integer
+                      description: Maximum number of logs to return
+                      default: 100
+      responses:
+        '200':
+          description: Logs retrieved successfully as Server-Sent Events
+          content:
+            text/event-stream:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: object
+                    properties:
+                      results:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            metadata:
+                              type: array
+                              items:
+                                type: object
+                            labels:
+                              type: array
+                              items:
+                                type: object
+                            user_data:
+                              type: string
+
+  /v1/alerts:
+    get:
+      operationId: listAlerts
+      summary: List All Alerts
+      description: Get all configured alerts in IBM Cloud Logs
+      servers:
+        - url: https://0e3d840c-d8fd-40bc-a27c-c35d762ec2d7.api.us-south.logs.cloud.ibm.com
+      security:
+        - apiKeyAuth: []
+      responses:
+        '200':
+          description: Alerts retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        is_active:
+                          type: boolean
+                        severity:
+                          type: string
+
+  /v1/views:
+    get:
+      operationId: listViews
+      summary: List Saved Views
+      description: Get all saved log views for quick access to filtered log queries
+      servers:
+        - url: https://0e3d840c-d8fd-40bc-a27c-c35d762ec2d7.api.us-south.logs.cloud.ibm.com
+      security:
+        - apiKeyAuth: []
+      responses:
+        '200':
+          description: Views retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  views:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+                        search_query:
+                          type: object

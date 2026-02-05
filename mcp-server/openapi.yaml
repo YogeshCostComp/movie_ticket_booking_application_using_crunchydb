@@ -1,0 +1,250 @@
+openapi: 3.0.3
+info:
+  title: SRE MCP Server API
+  description: |
+    MCP Server for SRE Agent providing tools to monitor the Movie Ticket Booking Application.
+    This server handles IBM Cloud authentication internally - no API keys needed.
+  version: 1.0.0
+
+servers:
+  - url: https://sre-mcp-server.260duz8s94f7.us-south.codeengine.appdomain.cloud
+    description: SRE MCP Server on IBM Code Engine
+
+paths:
+  /health:
+    get:
+      operationId: mcpServerHealth
+      summary: MCP Server Health
+      description: Check if the MCP server itself is running
+      responses:
+        '200':
+          description: MCP Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+
+  /tools/check_app_health:
+    get:
+      operationId: checkAppHealth
+      summary: Check Application Health
+      description: Check if the Movie Ticket Booking App is running and responsive
+      responses:
+        '200':
+          description: Application health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /tools/check_database_health:
+    get:
+      operationId: checkDatabaseHealth
+      summary: Check Database Health
+      description: Check if the database connection is working properly
+      responses:
+        '200':
+          description: Database health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /tools/get_recent_logs:
+    post:
+      operationId: getRecentLogs
+      summary: Get Recent Logs
+      description: Get recent application logs from the last hour
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  default: 20
+                  description: Maximum number of log entries to return
+      responses:
+        '200':
+          description: Recent log entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogResponse'
+
+  /tools/get_error_logs:
+    post:
+      operationId: getErrorLogs
+      summary: Get Error Logs
+      description: Get error logs from the application
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hours:
+                  type: integer
+                  default: 1
+                  description: How many hours back to search for errors
+                limit:
+                  type: integer
+                  default: 50
+                  description: Maximum number of error entries to return
+      responses:
+        '200':
+          description: Error log entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogResponse'
+
+  /tools/query_logs:
+    post:
+      operationId: queryLogs
+      summary: Query Logs with Custom Query
+      description: Query logs using DataPrime query syntax
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query
+              properties:
+                query:
+                  type: string
+                  description: DataPrime query (e.g., "source logs | filter $d.message contains 'booking' | limit 10")
+                hours:
+                  type: integer
+                  default: 1
+                  description: How many hours back to search
+                limit:
+                  type: integer
+                  default: 100
+                  description: Maximum number of results
+      responses:
+        '200':
+          description: Query results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogResponse'
+
+  /tools/get_seat_status:
+    get:
+      operationId: getSeatStatus
+      summary: Get Seat Availability
+      description: Get current seat availability status from the Movie Ticket App
+      responses:
+        '200':
+          description: Seat status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  total_seats:
+                    type: integer
+                  available:
+                    type: integer
+                  booked:
+                    type: integer
+                  seats:
+                    type: object
+
+  /tools/get_bookings:
+    get:
+      operationId: getBookings
+      summary: Get All Bookings
+      description: Get all booking details from the Movie Ticket App
+      responses:
+        '200':
+          description: Booking details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  total_bookings:
+                    type: integer
+                  bookings:
+                    type: array
+                    items:
+                      type: object
+
+  /tools/get_system_status:
+    get:
+      operationId: getSystemStatus
+      summary: Get Complete System Status
+      description: Get comprehensive system status including app health, database health, and recent errors. Use this for a full system overview.
+      responses:
+        '200':
+          description: Complete system status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                  app:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                      response_time_ms:
+                        type: number
+                  database:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                      response_time_ms:
+                        type: number
+                  recent_errors:
+                    type: object
+                    properties:
+                      has_errors:
+                        type: boolean
+                      sample:
+                        type: string
+                  overall_status:
+                    type: string
+                    description: HEALTHY, DEGRADED, or CRITICAL
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy, critical, error]
+        message:
+          type: string
+        response_time_ms:
+          type: number
+
+    LogResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        query:
+          type: string
+        time_range:
+          type: string
+        logs:
+          type: string

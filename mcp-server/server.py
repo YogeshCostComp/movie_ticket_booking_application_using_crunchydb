@@ -85,22 +85,22 @@ def query_cloud_logs(query, start_date=None, end_date=None, limit=100):
     token = get_bearer_token()
     
     if not start_date:
-        start_date = (datetime.utcnow() - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        start_date = (datetime.utcnow() - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
     if not end_date:
-        end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
     
-    # Correct URL format for IBM Cloud Logs
-    url = f"https://api.{CLOUD_LOGS_REGION}.logs.cloud.ibm.com/v1/dataprime/query/run"
+    # Correct URL format for IBM Cloud Logs API - instance ID in subdomain
+    url = f"https://{CLOUD_LOGS_INSTANCE_ID}.api.{CLOUD_LOGS_REGION}.logs.cloud.ibm.com/v1/query"
     
     payload = {
         "query": query,
         "metadata": {
             "start_date": start_date,
             "end_date": end_date,
-            "default_source": "<v1>frequent-search",
             "tier": "frequent_search",
             "syntax": "dataprime",
-            "limit": limit
+            "limit": limit,
+            "strict_fields_validation": False
         }
     }
     
@@ -109,9 +109,10 @@ def query_cloud_logs(query, start_date=None, end_date=None, limit=100):
         headers={
             'Authorization': f'Bearer {token}',
             'Content-Type': 'application/json',
-            'IBM-Cloud-Logs-Instance-Id': CLOUD_LOGS_INSTANCE_ID
+            'Accept': 'text/event-stream'
         },
-        json=payload
+        json=payload,
+        timeout=30
     )
     response.raise_for_status()
     return response.text

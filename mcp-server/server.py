@@ -189,8 +189,11 @@ def check_database_health():
 def get_recent_logs():
     """Get recent application logs from the last hour"""
     try:
-        data = request.get_json() or {}
-        limit = data.get('limit', 20)
+        if request.method == 'GET':
+            limit = request.args.get('limit', 20, type=int)
+        else:
+            data = request.get_json(silent=True) or {}
+            limit = data.get('limit', 20)
         
         # Simple query to get recent logs - filter by movie-ticket app if available
         query = f"source logs | limit {limit}"
@@ -213,9 +216,13 @@ def get_recent_logs():
 def get_error_logs():
     """Get error logs from the application"""
     try:
-        data = request.get_json() or {}
-        hours = data.get('hours', 1)
-        limit = data.get('limit', 50)
+        if request.method == 'GET':
+            hours = request.args.get('hours', 1, type=int)
+            limit = request.args.get('limit', 50, type=int)
+        else:
+            data = request.get_json(silent=True) or {}
+            hours = data.get('hours', 1)
+            limit = data.get('limit', 50)
         
         start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
         end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
@@ -238,14 +245,19 @@ def get_error_logs():
         }), 500
 
 
-@app.route('/tools/query_logs', methods=['POST'])
+@app.route('/tools/query_logs', methods=['GET', 'POST'])
 def query_logs():
     """Query logs with custom DataPrime query"""
     try:
-        data = request.get_json() or {}
-        query = data.get('query', 'source logs | limit 10')
-        hours = data.get('hours', 1)
-        limit = data.get('limit', 100)
+        if request.method == 'GET':
+            query = request.args.get('query', 'source logs | limit 10')
+            hours = request.args.get('hours', 1, type=int)
+            limit = request.args.get('limit', 100, type=int)
+        else:
+            data = request.get_json(silent=True) or {}
+            query = data.get('query', 'source logs | limit 10')
+            hours = data.get('hours', 1)
+            limit = data.get('limit', 100)
         
         start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
         end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')

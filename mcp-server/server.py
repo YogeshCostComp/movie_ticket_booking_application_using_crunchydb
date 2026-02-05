@@ -16,12 +16,21 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# Enable CORS for all routes
+@app.after_request
+def after_request(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-API-Key'
+    return response
+
 # Configuration from environment variables
 IBM_API_KEY = os.environ.get('IBM_API_KEY', '')
 CLOUD_LOGS_INSTANCE_ID = os.environ.get('CLOUD_LOGS_INSTANCE_ID', '0e3d840c-d8fd-40bc-a27c-c35d762ec2d7')
 CLOUD_LOGS_REGION = os.environ.get('CLOUD_LOGS_REGION', 'us-south')
 APP_URL = os.environ.get('APP_URL', 'https://movie-ticket-app.260duz8s94f7.us-south.codeengine.appdomain.cloud')
 DB_HOST = os.environ.get('DB_HOST', 'ep-dry-breeze-aig3i25p-pooler.c-4.us-east-1.aws.neon.tech')
+MCP_API_KEY = os.environ.get('MCP_API_KEY', 'sre-mcp-secret-key-2026')
 
 @app.route('/')
 def root():
@@ -476,9 +485,39 @@ MCP_TOOLS = [
     }
 ]
 
-@app.route('/mcp', methods=['POST'])
+@app.route('/mcp', methods=['GET', 'POST', 'OPTIONS'])
 def mcp_endpoint():
     """MCP JSON-RPC endpoint for watsonx Orchestrate"""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        response = jsonify({})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-API-Key'
+        return response
+    
+    # Handle GET request (health check / discovery)
+    if request.method == 'GET':
+        return jsonify({
+            "jsonrpc": "2.0",
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "serverInfo": {
+                    "name": "sre-mcp-server",
+                    "version": "1.0.0"
+                }
+            }
+        })
+    
+    # Verify API key for POST requests (optional - check header)
+    auth_header = request.headers.get('Authorization', '')
+    api_key_header = request.headers.get('X-API-Key', '')
+    
+    # Accept requests with valid API key or no auth (for testing)
+    # In production, uncomment the following to enforce auth:
+    # if api_key_header != MCP_API_KEY and not auth_header.endswith(MCP_API_KEY):
+    #     return jsonify({"error": "Unauthorized"}), 401
+    
     try:
         data = request.get_json()
         method = data.get('method', '')

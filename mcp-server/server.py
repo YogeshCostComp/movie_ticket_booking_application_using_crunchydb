@@ -30,6 +30,9 @@ def root():
         'status': 'healthy',
         'service': 'SRE MCP Server',
         'version': '1.0.0',
+        'api_key_configured': bool(IBM_API_KEY),
+        'api_key_length': len(IBM_API_KEY) if IBM_API_KEY else 0,
+        'api_key_preview': f"{IBM_API_KEY[:5]}...{IBM_API_KEY[-5:]}" if IBM_API_KEY and len(IBM_API_KEY) > 10 else "NOT SET",
         'endpoints': [
             '/tools/check_app_health',
             '/tools/check_database_health',

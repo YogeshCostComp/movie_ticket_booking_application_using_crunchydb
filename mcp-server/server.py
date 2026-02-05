@@ -192,7 +192,8 @@ def get_recent_logs():
         data = request.get_json() or {}
         limit = data.get('limit', 20)
         
-        query = f"source logs | filter $d.label.Project == 'movie-ticket-project' | limit {limit}"
+        # Simple query to get recent logs - filter by movie-ticket app if available
+        query = f"source logs | limit {limit}"
         logs = query_cloud_logs(query, limit=limit)
         
         return jsonify({
@@ -219,7 +220,8 @@ def get_error_logs():
         start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
         end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
         
-        query = f"source logs | filter $d.message contains 'error' OR $d.message contains 'Error' OR $d.message contains 'ERROR' OR $d.message contains 'Traceback' | limit {limit}"
+        # Use severity filter for errors - ERROR level is 5 in IBM Cloud Logs
+        query = f"source logs | filter $m.severity == 'ERROR' | limit {limit}"
         logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
         
         return jsonify({

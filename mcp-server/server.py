@@ -482,6 +482,15 @@ MCP_TOOLS = [
             "properties": {},
             "required": []
         }
+    },
+    {
+        "name": "get_seat_bookings",
+        "description": "Get the current seat booking status - shows available seats, blocked/booked seats, and who booked them with their contact details",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
     }
 ]
 
@@ -662,6 +671,51 @@ def execute_mcp_tool(tool_name, args):
                 "database": db_status,
                 "timestamp": datetime.utcnow().isoformat()
             }
+        
+        elif tool_name == 'get_seat_bookings':
+            try:
+                # Get seat status
+                seats_response = requests.get(f"{APP_URL}/get", timeout=30)
+                # Get booking details (who booked)
+                bookings_response = requests.get(f"{APP_URL}/getUsersDetails", timeout=30)
+                
+                if seats_response.status_code == 200:
+                    seats = seats_response.json()
+                    available_seats = [seat for seat, status in seats.items() if status == "available"]
+                    blocked_seats = [seat for seat, status in seats.items() if status == "blocked"]
+                    reserved_seats = [seat for seat, status in seats.items() if status == "reserved"]
+                    total = len(seats)
+                    
+                    result = {
+                        "status": "success",
+                        "summary": {
+                            "total_seats": total,
+                            "available_count": len(available_seats),
+                            "booked_count": len(blocked_seats),
+                            "reserved_count": len(reserved_seats)
+                        },
+                        "available_seats": sorted(available_seats),
+                        "booked_seats": sorted(blocked_seats),
+                        "message": f"Out of {total} seats: {len(available_seats)} available, {len(blocked_seats)} booked"
+                    }
+                    
+                    # Add booking details if available
+                    if bookings_response.status_code == 200:
+                        bookings_data = bookings_response.json()
+                        bookings = bookings_data if isinstance(bookings_data, list) else bookings_data.get('value', [])
+                        # Filter out empty bookings
+                        valid_bookings = [b for b in bookings if b.get('name') and b.get('seats')]
+                        result["bookings"] = valid_bookings
+                        result["booking_details"] = [
+                            f"{b['name']} ({b['phone_no']}): seats {b['seats']}" 
+                            for b in valid_bookings
+                        ]
+                    
+                    return result
+                else:
+                    return {"status": "error", "message": f"Failed to get seat data: HTTP {seats_response.status_code}"}
+            except Exception as e:
+                return {"status": "error", "message": str(e)}
         
         else:
             return {"error": f"Unknown tool: {tool_name}"}

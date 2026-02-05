@@ -597,7 +597,7 @@ def execute_mcp_tool(tool_name, args):
     """Execute an MCP tool and return the result"""
     try:
         if tool_name == 'check_app_health':
-            response = requests.get(APP_URL, timeout=10)
+            response = requests.get(APP_URL, timeout=30)
             return {
                 "status": "healthy" if response.status_code == 200 else "unhealthy",
                 "app_url": APP_URL,
@@ -607,7 +607,7 @@ def execute_mcp_tool(tool_name, args):
         
         elif tool_name == 'check_database_health':
             try:
-                response = requests.get(f"{APP_URL}/seats", timeout=10)
+                response = requests.get(f"{APP_URL}/get", timeout=30)
                 return {
                     "status": "healthy" if response.status_code == 200 else "unhealthy",
                     "message": "Database connection is working" if response.status_code == 200 else "Database connection issue detected"
@@ -642,14 +642,14 @@ def execute_mcp_tool(tool_name, args):
         elif tool_name == 'get_system_status':
             # Check app health
             try:
-                app_response = requests.get(APP_URL, timeout=10)
+                app_response = requests.get(APP_URL, timeout=30)
                 app_status = {"status": "healthy" if app_response.status_code == 200 else "unhealthy"}
             except Exception as e:
                 app_status = {"status": "unhealthy", "error": str(e)}
             
             # Check database
             try:
-                db_response = requests.get(f"{APP_URL}/seats", timeout=10)
+                db_response = requests.get(f"{APP_URL}/get", timeout=30)
                 db_status = {"status": "healthy" if db_response.status_code == 200 else "unhealthy"}
             except Exception as e:
                 db_status = {"status": "unhealthy", "error": str(e)}

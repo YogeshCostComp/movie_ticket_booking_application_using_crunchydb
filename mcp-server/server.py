@@ -33,9 +33,7 @@ DB_HOST = os.environ.get('DB_HOST', 'ep-dry-breeze-aig3i25p-pooler.c-4.us-east-1
 MCP_API_KEY = os.environ.get('MCP_API_KEY', 'sre-mcp-secret-key-2026')
 
 # Code Engine configuration
-CODE_ENGINE_PROJECT_ID = os.environ.get('CODE_ENGINE_PROJECT_ID', '8c6674f8-001f-40dc-891f-de41d892fbb5')
 CODE_ENGINE_REGION = os.environ.get('CODE_ENGINE_REGION', 'us-south')
-MOVIE_TICKET_APP_NAME = os.environ.get('MOVIE_TICKET_APP_NAME', 'movie-ticket-app')
 
 @app.route('/')
 def root():
@@ -132,16 +130,82 @@ def query_cloud_logs(query, start_date=None, end_date=None, limit=100):
     return response.text
 
 
-def scale_code_engine_app(app_name, min_scale, max_scale=None):
+def discover_code_engine_apps():
+    """Discover all Code Engine projects and apps dynamically"""
+    token = get_bearer_token()
+    base_url = f"https://api.{CODE_ENGINE_REGION}.codeengine.cloud.ibm.com/v2"
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
+    
+    # Step 1: List all projects
+    projects_response = requests.get(f"{base_url}/projects", headers=headers, timeout=30)
+    if projects_response.status_code != 200:
+        return {"status": "error", "message": f"Failed to list projects: {projects_response.text}"}
+    
+    projects = projects_response.json().get('projects', [])
+    
+    # Step 2: For each project, list apps
+    all_apps = []
+    for project in projects:
+        project_id = project.get('id', '')
+        project_name = project.get('name', '')
+        
+        apps_response = requests.get(
+            f"{base_url}/projects/{project_id}/apps",
+            headers=headers, timeout=30
+        )
+        if apps_response.status_code == 200:
+            apps = apps_response.json().get('apps', [])
+            for app_info in apps:
+                all_apps.append({
+                    "project_id": project_id,
+                    "project_name": project_name,
+                    "app_name": app_info.get('name', ''),
+                    "app_status": app_info.get('status', 'unknown'),
+                    "min_instances": app_info.get('scale_min_instances', 0),
+                    "max_instances": app_info.get('scale_max_instances', 0),
+                    "endpoint": app_info.get('endpoint', 'N/A'),
+                    "image": app_info.get('image_reference', '')
+                })
+    
+    return {"status": "success", "apps": all_apps}
+
+
+def find_app(app_name_filter=None):
+    """Find a specific app across all projects. If no filter, find the movie ticket app."""
+    result = discover_code_engine_apps()
+    if result.get('status') != 'success':
+        return None
+    
+    apps = result.get('apps', [])
+    
+    if app_name_filter:
+        # Find by name filter
+        for app_info in apps:
+            if app_name_filter.lower() in app_info['app_name'].lower():
+                return app_info
+    else:
+        # Find movie-ticket app by checking the APP_URL or name containing 'movie' or 'ticket'
+        for app_info in apps:
+            name = app_info['app_name'].lower()
+            if 'movie' in name or 'ticket' in name:
+                return app_info
+    
+    return None
+
+
+def scale_code_engine_app(project_id, app_name, min_scale, max_scale=None):
     """Scale a Code Engine application (0 = stop, 1+ = start)"""
     token = get_bearer_token()
     
     if max_scale is None:
         max_scale = max(min_scale, 1)
     
-    url = f"https://api.{CODE_ENGINE_REGION}.codeengine.cloud.ibm.com/v2/projects/{CODE_ENGINE_PROJECT_ID}/apps/{app_name}"
+    url = f"https://api.{CODE_ENGINE_REGION}.codeengine.cloud.ibm.com/v2/projects/{project_id}/apps/{app_name}"
     
-    # First, get the current app configuration
+    # First, get the current app configuration for ETag
     get_response = requests.get(
         url,
         headers={
@@ -154,7 +218,6 @@ def scale_code_engine_app(app_name, min_scale, max_scale=None):
     if get_response.status_code != 200:
         return {"status": "error", "message": f"Failed to get app info: {get_response.text}"}
     
-    app_data = get_response.json()
     etag = get_response.headers.get('ETag', '')
     
     # Update the scale settings
@@ -178,20 +241,21 @@ def scale_code_engine_app(app_name, min_scale, max_scale=None):
         return {
             "status": "success",
             "app_name": app_name,
+            "project_id": project_id,
             "action": "stopped" if min_scale == 0 else "started",
             "min_instances": min_scale,
             "max_instances": max_scale,
-            "message": f"App {app_name} {'stopped (scaled to 0)' if min_scale == 0 else f'started (scaled to {min_scale}-{max_scale})'}"
+            "message": f"App '{app_name}' {'stopped (scaled to 0)' if min_scale == 0 else f'started (scaled to {min_scale}-{max_scale})'}"
         }
     else:
         return {"status": "error", "message": f"Failed to scale app: {patch_response.text}"}
 
 
-def get_code_engine_app_status(app_name):
+def get_code_engine_app_status(project_id, app_name):
     """Get the current status of a Code Engine application"""
     token = get_bearer_token()
     
-    url = f"https://api.{CODE_ENGINE_REGION}.codeengine.cloud.ibm.com/v2/projects/{CODE_ENGINE_PROJECT_ID}/apps/{app_name}"
+    url = f"https://api.{CODE_ENGINE_REGION}.codeengine.cloud.ibm.com/v2/projects/{project_id}/apps/{app_name}"
     
     response = requests.get(
         url,
@@ -207,11 +271,12 @@ def get_code_engine_app_status(app_name):
         return {
             "status": "success",
             "app_name": app_name,
+            "project_id": project_id,
             "app_status": app_data.get('status', 'unknown'),
-            "running_instances": app_data.get('status_details', {}).get('running_instances', 0),
             "min_instances": app_data.get('scale_min_instances', 0),
             "max_instances": app_data.get('scale_max_instances', 10),
-            "url": app_data.get('endpoint', 'N/A')
+            "url": app_data.get('endpoint', 'N/A'),
+            "image": app_data.get('image_reference', '')
         }
     else:
         return {"status": "error", "message": f"Failed to get app status: {response.text}"}
@@ -888,40 +953,65 @@ def execute_mcp_tool(tool_name, args):
             return {"status": "success", "log_type": "Platform Logs (Code Engine)", "query": query, "logs": logs}
         
         elif tool_name == 'stop_app':
-            # Stop the Movie Ticket App by scaling to 0 instances
-            result = scale_code_engine_app(MOVIE_TICKET_APP_NAME, min_scale=0, max_scale=0)
+            # Dynamically find the movie ticket app
+            app_info = find_app('movie-ticket')
+            if not app_info:
+                # Fallback: try listing all apps
+                discovery = discover_code_engine_apps()
+                return {"status": "error", "message": "Could not find Movie Ticket App", "discovered_apps": discovery.get('apps', [])}
+            
+            result = scale_code_engine_app(app_info['project_id'], app_info['app_name'], min_scale=0, max_scale=0)
             return result
         
         elif tool_name == 'start_app':
-            # Start the Movie Ticket App by scaling to 1 instance
-            result = scale_code_engine_app(MOVIE_TICKET_APP_NAME, min_scale=1, max_scale=10)
+            # Dynamically find the movie ticket app
+            app_info = find_app('movie-ticket')
+            if not app_info:
+                discovery = discover_code_engine_apps()
+                return {"status": "error", "message": "Could not find Movie Ticket App", "discovered_apps": discovery.get('apps', [])}
+            
+            result = scale_code_engine_app(app_info['project_id'], app_info['app_name'], min_scale=1, max_scale=10)
             return result
         
         elif tool_name == 'restart_app':
-            # Restart: stop then start
-            stop_result = scale_code_engine_app(MOVIE_TICKET_APP_NAME, min_scale=0, max_scale=0)
+            # Dynamically find the movie ticket app
+            app_info = find_app('movie-ticket')
+            if not app_info:
+                discovery = discover_code_engine_apps()
+                return {"status": "error", "message": "Could not find Movie Ticket App", "discovered_apps": discovery.get('apps', [])}
+            
+            # Stop
+            stop_result = scale_code_engine_app(app_info['project_id'], app_info['app_name'], min_scale=0, max_scale=0)
             if stop_result.get('status') != 'success':
                 return {"status": "error", "message": f"Failed to stop app: {stop_result.get('message')}"}
             
-            # Wait a moment then start
             import time
-            time.sleep(2)
+            time.sleep(3)
             
-            start_result = scale_code_engine_app(MOVIE_TICKET_APP_NAME, min_scale=1, max_scale=10)
+            # Start
+            start_result = scale_code_engine_app(app_info['project_id'], app_info['app_name'], min_scale=1, max_scale=10)
             if start_result.get('status') != 'success':
-                return {"status": "error", "message": f"Stopped but failed to start app: {start_result.get('message')}"}
+                return {"status": "error", "message": f"Stopped but failed to start: {start_result.get('message')}"}
             
             return {
                 "status": "success",
-                "app_name": MOVIE_TICKET_APP_NAME,
+                "app_name": app_info['app_name'],
+                "project_id": app_info['project_id'],
                 "action": "restarted",
-                "message": f"App {MOVIE_TICKET_APP_NAME} has been restarted successfully"
+                "message": f"App '{app_info['app_name']}' has been restarted successfully"
             }
         
         elif tool_name == 'get_app_status':
-            # Get current app status from Code Engine
-            result = get_code_engine_app_status(MOVIE_TICKET_APP_NAME)
-            return result
+            # Dynamically find and get status for all Code Engine apps
+            discovery = discover_code_engine_apps()
+            if discovery.get('status') != 'success':
+                return discovery
+            
+            return {
+                "status": "success",
+                "message": f"Found {len(discovery['apps'])} app(s) across Code Engine projects",
+                "apps": discovery['apps']
+            }
         
         else:
             return {"error": f"Unknown tool: {tool_name}"}

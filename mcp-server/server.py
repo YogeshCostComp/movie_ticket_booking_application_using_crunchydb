@@ -32,6 +32,11 @@ APP_URL = os.environ.get('APP_URL', 'https://movie-ticket-app.260duz8s94f7.us-so
 DB_HOST = os.environ.get('DB_HOST', 'ep-dry-breeze-aig3i25p-pooler.c-4.us-east-1.aws.neon.tech')
 MCP_API_KEY = os.environ.get('MCP_API_KEY', 'sre-mcp-secret-key-2026')
 
+# Code Engine configuration
+CODE_ENGINE_PROJECT_ID = os.environ.get('CODE_ENGINE_PROJECT_ID', '8c6674f8-001f-40dc-891f-de41d892fbb5')
+CODE_ENGINE_REGION = os.environ.get('CODE_ENGINE_REGION', 'us-south')
+MOVIE_TICKET_APP_NAME = os.environ.get('MOVIE_TICKET_APP_NAME', 'movie-ticket-app')
+
 @app.route('/')
 def root():
     """Root endpoint - health check for the MCP server itself"""
@@ -125,6 +130,91 @@ def query_cloud_logs(query, start_date=None, end_date=None, limit=100):
     )
     response.raise_for_status()
     return response.text
+
+
+def scale_code_engine_app(app_name, min_scale, max_scale=None):
+    """Scale a Code Engine application (0 = stop, 1+ = start)"""
+    token = get_bearer_token()
+    
+    if max_scale is None:
+        max_scale = max(min_scale, 1)
+    
+    url = f"https://api.{CODE_ENGINE_REGION}.codeengine.cloud.ibm.com/v2/projects/{CODE_ENGINE_PROJECT_ID}/apps/{app_name}"
+    
+    # First, get the current app configuration
+    get_response = requests.get(
+        url,
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        },
+        timeout=30
+    )
+    
+    if get_response.status_code != 200:
+        return {"status": "error", "message": f"Failed to get app info: {get_response.text}"}
+    
+    app_data = get_response.json()
+    etag = get_response.headers.get('ETag', '')
+    
+    # Update the scale settings
+    patch_data = {
+        "scale_min_instances": min_scale,
+        "scale_max_instances": max_scale
+    }
+    
+    patch_response = requests.patch(
+        url,
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/merge-patch+json',
+            'If-Match': etag
+        },
+        json=patch_data,
+        timeout=30
+    )
+    
+    if patch_response.status_code in [200, 201, 202]:
+        return {
+            "status": "success",
+            "app_name": app_name,
+            "action": "stopped" if min_scale == 0 else "started",
+            "min_instances": min_scale,
+            "max_instances": max_scale,
+            "message": f"App {app_name} {'stopped (scaled to 0)' if min_scale == 0 else f'started (scaled to {min_scale}-{max_scale})'}"
+        }
+    else:
+        return {"status": "error", "message": f"Failed to scale app: {patch_response.text}"}
+
+
+def get_code_engine_app_status(app_name):
+    """Get the current status of a Code Engine application"""
+    token = get_bearer_token()
+    
+    url = f"https://api.{CODE_ENGINE_REGION}.codeengine.cloud.ibm.com/v2/projects/{CODE_ENGINE_PROJECT_ID}/apps/{app_name}"
+    
+    response = requests.get(
+        url,
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        },
+        timeout=30
+    )
+    
+    if response.status_code == 200:
+        app_data = response.json()
+        return {
+            "status": "success",
+            "app_name": app_name,
+            "app_status": app_data.get('status', 'unknown'),
+            "running_instances": app_data.get('status_details', {}).get('running_instances', 0),
+            "min_instances": app_data.get('scale_min_instances', 0),
+            "max_instances": app_data.get('scale_max_instances', 10),
+            "url": app_data.get('endpoint', 'N/A')
+        }
+    else:
+        return {"status": "error", "message": f"Failed to get app status: {response.text}"}
 
 
 # ============== MCP Tools ==============
@@ -521,6 +611,42 @@ MCP_TOOLS = [
             },
             "required": []
         }
+    },
+    {
+        "name": "stop_app",
+        "description": "Stop the Movie Ticket Booking application by scaling it to 0 instances",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "start_app",
+        "description": "Start the Movie Ticket Booking application by scaling it to 1 instance",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "restart_app",
+        "description": "Restart the Movie Ticket Booking application by stopping and starting it",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_app_status",
+        "description": "Get the current status of the Movie Ticket Booking application including running instances",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
     }
 ]
 
@@ -760,6 +886,42 @@ def execute_mcp_tool(tool_name, args):
             query = f"source logs | filter $d.app == 'codeengine' | filter $d.label.Project != 'movie-ticket-project' | limit {limit}"
             logs = query_cloud_logs(query, limit=limit)
             return {"status": "success", "log_type": "Platform Logs (Code Engine)", "query": query, "logs": logs}
+        
+        elif tool_name == 'stop_app':
+            # Stop the Movie Ticket App by scaling to 0 instances
+            result = scale_code_engine_app(MOVIE_TICKET_APP_NAME, min_scale=0, max_scale=0)
+            return result
+        
+        elif tool_name == 'start_app':
+            # Start the Movie Ticket App by scaling to 1 instance
+            result = scale_code_engine_app(MOVIE_TICKET_APP_NAME, min_scale=1, max_scale=10)
+            return result
+        
+        elif tool_name == 'restart_app':
+            # Restart: stop then start
+            stop_result = scale_code_engine_app(MOVIE_TICKET_APP_NAME, min_scale=0, max_scale=0)
+            if stop_result.get('status') != 'success':
+                return {"status": "error", "message": f"Failed to stop app: {stop_result.get('message')}"}
+            
+            # Wait a moment then start
+            import time
+            time.sleep(2)
+            
+            start_result = scale_code_engine_app(MOVIE_TICKET_APP_NAME, min_scale=1, max_scale=10)
+            if start_result.get('status') != 'success':
+                return {"status": "error", "message": f"Stopped but failed to start app: {start_result.get('message')}"}
+            
+            return {
+                "status": "success",
+                "app_name": MOVIE_TICKET_APP_NAME,
+                "action": "restarted",
+                "message": f"App {MOVIE_TICKET_APP_NAME} has been restarted successfully"
+            }
+        
+        elif tool_name == 'get_app_status':
+            # Get current app status from Code Engine
+            result = get_code_engine_app_status(MOVIE_TICKET_APP_NAME)
+            return result
         
         else:
             return {"error": f"Unknown tool: {tool_name}"}

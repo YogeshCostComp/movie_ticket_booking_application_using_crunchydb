@@ -599,8 +599,8 @@ def get_recent_logs():
             data = request.get_json(silent=True) or {}
             limit = data.get('limit', 20)
         
-        # Get recent logs from all Code Engine apps (movie-ticket and sre-mcp-server)
-        query = f"source logs | filter $d.app == 'codeengine' | limit {limit}"
+        # Get recent logs from all apps (runtime + build)
+        query = f"source logs | limit {limit}"
         logs = query_cloud_logs(query, limit=limit)
         
         return jsonify({
@@ -631,8 +631,8 @@ def get_error_logs():
         start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
         end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
         
-        # Filter for error/exception logs from all Code Engine apps
-        query = f"source logs | filter $d.app == 'codeengine' | filter $d.message.message ~ 'error|Error|ERROR|exception|Exception|failed|Failed' | limit {limit}"
+        # Filter for error/exception logs from all apps (runtime + build)
+        query = f"source logs | filter $d.message.message ~ 'error|Error|ERROR|exception|Exception|failed|Failed' | limit {limit}"
         logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
         
         return jsonify({
@@ -819,6 +819,11 @@ MCP_TOOLS = [
                     "type": "integer",
                     "description": "Maximum number of logs to return",
                     "default": 20
+                },
+                "hours": {
+                    "type": "integer",
+                    "description": "Number of hours to look back",
+                    "default": 1
                 }
             },
             "required": []
@@ -1153,8 +1158,11 @@ def execute_mcp_tool(tool_name, args):
         
         elif tool_name == 'get_recent_logs':
             limit = args.get('limit', 20)
-            query = f"source logs | filter $d.app == 'codeengine' | limit {limit}"
-            logs = query_cloud_logs(query, limit=limit)
+            hours = args.get('hours', 1)
+            start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            query = f"source logs | limit {limit}"
+            logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
             return {
                 "status": "success",
                 "log_count": len(logs),
@@ -1167,7 +1175,7 @@ def execute_mcp_tool(tool_name, args):
             limit = args.get('limit', 50)
             start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
             end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
-            query = f"source logs | filter $d.app == 'codeengine' | filter $d.message.message ~ 'error|Error|ERROR|exception|Exception|failed|Failed' | limit {limit}"
+            query = f"source logs | filter $d.message.message ~ 'error|Error|ERROR|exception|Exception|failed|Failed' | limit {limit}"
             logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
             return {
                 "status": "success",
@@ -1280,8 +1288,8 @@ def execute_mcp_tool(tool_name, args):
         
         elif tool_name == 'get_platform_logs':
             limit = args.get('limit', 20)
-            # Platform logs - Code Engine builds, deployments, etc. (exclude movie-ticket-project app logs)
-            query = f"source logs | filter $d.app == 'codeengine' | filter $d.label.Project != 'movie-ticket-project' | limit {limit}"
+            # Platform logs - Code Engine builds, deployments, etc.
+            query = f"source logs | filter $d.message.message ~ 'build|deploy|Dockerfile|docker|pushing|exporting' | limit {limit}"
             logs = query_cloud_logs(query, limit=limit)
             return {
                 "status": "success",

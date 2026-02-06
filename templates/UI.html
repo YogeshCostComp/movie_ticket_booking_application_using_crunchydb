@@ -312,30 +312,101 @@ function myFunction(z) {
 }
 
 function reserve_seats(){
+  // --- Client-side validation ---
+  let nameVal = document.getElementById("name").value.trim();
+  let phoneVal = document.getElementById("phone").value.trim();
+
+  if (!nameVal) {
+    showError("Please enter your name.");
+    return;
+  }
+  if (!phoneVal || phoneVal.length < 7) {
+    showError("Please enter a valid phone number (at least 7 digits).");
+    return;
+  }
+
+  // Check if any seats selected
+  let hasSelection = false;
+  for (let k in data_seats) {
+    if (data_seats[k] === "reserved") {
+      hasSelection = true;
+      break;
+    }
+  }
+  if (!hasSelection) {
+    showError("Please select at least one seat before reserving.");
+    return;
+  }
+
   let userdetails = {
-name: document.getElementById("name").value,
-number: document.getElementById("phone").value
-};
+    name: nameVal,
+    number: phoneVal
+  };
 
-let formData = new FormData();
-    formData.append("userdetails", JSON.stringify(userdetails));
-    formData.append("data_seats", JSON.stringify(data_seats));
+  let formData = new FormData();
+  formData.append("userdetails", JSON.stringify(userdetails));
+  formData.append("data_seats", JSON.stringify(data_seats));
+
+  // Disable button during request
+  let reserveBtn = document.querySelector('.button');
+  reserveBtn.disabled = true;
+  reserveBtn.innerHTML = '<span>Reserving...</span>';
+
   $.ajax({
-            url: '/update',
-            type: 'POST',
-            data: formData,
-            dataType: 'json',
-            cache: false,
-            contentType: false,
-            processData: false,
-        success: function(response) {
-          if (response.flag == 0){
-            //location.reload();
-            location.replace("/details");
-          }
+    url: '/update',
+    type: 'POST',
+    data: formData,
+    dataType: 'json',
+    cache: false,
+    contentType: false,
+    processData: false,
+    success: function(response) {
+      if (response.flag == 0) {
+        showSuccess(response.message || "Seats reserved successfully!");
+        setTimeout(function() {
+          location.replace("/details");
+        }, 1500);
+      } else {
+        showError(response.error || "Reservation failed. Please try again.");
+        reserveBtn.disabled = false;
+        reserveBtn.innerHTML = '<span>Reserve Seats</span>';
+      }
+    },
+    error: function(xhr) {
+      let msg = "Something went wrong. Please try again.";
+      try {
+        let resp = JSON.parse(xhr.responseText);
+        if (resp.error) msg = resp.error;
+      } catch(e) {}
+      showError(msg);
+      reserveBtn.disabled = false;
+      reserveBtn.innerHTML = '<span>Reserve Seats</span>';
+    }
+  });
+}
 
-        }});
-console.log(data_seats);
+function showError(message) {
+  removeToast();
+  let toast = document.createElement('div');
+  toast.id = 'toast-msg';
+  toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#f44336;color:white;padding:16px 28px;border-radius:8px;font-size:16px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:90%;text-align:center;animation:slideDown 0.3s ease;';
+  toast.innerHTML = '⚠️ ' + message;
+  document.body.appendChild(toast);
+  setTimeout(removeToast, 6000);
+}
+
+function showSuccess(message) {
+  removeToast();
+  let toast = document.createElement('div');
+  toast.id = 'toast-msg';
+  toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#4CAF50;color:white;padding:16px 28px;border-radius:8px;font-size:16px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:90%;text-align:center;animation:slideDown 0.3s ease;';
+  toast.innerHTML = '✅ ' + message;
+  document.body.appendChild(toast);
+}
+
+function removeToast() {
+  let existing = document.getElementById('toast-msg');
+  if (existing) existing.remove();
 }
 
 

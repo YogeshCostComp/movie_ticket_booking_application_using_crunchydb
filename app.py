@@ -96,28 +96,77 @@ def update_seats():
 	number = ''
 	seats = []
 	if request.method == 'POST':
-		x = json.loads(request.form['data_seats'])
-		user_data = json.loads(request.form['userdetails'])
-		print(type(x))
-		name = user_data['name']
-		number = user_data['number']
-		for k,v in x.items():
-			if v == "reserved":
-				seats.append(k)
-				x[k] = "blocked"
-		print(name)
-		print(number)
-		print(seats)
-		seats_string = ','.join(seats)
-		#print(x)
-		conn = get_db_connection()
-		update(seats,conn)
-		with conn.cursor() as cur:
-			cur.execute("INSERT INTO userdetails (phone_no, name, seats) VALUES (%s,%s,%s)", (number,name,seats_string))
-			logging.debug("insert_seats(): status message: {}".format(cur.statusmessage))
-		conn.commit()
-		conn.close()
-	return json.dumps({"flag":0})
+		try:
+			x = json.loads(request.form['data_seats'])
+			user_data = json.loads(request.form['userdetails'])
+			name = user_data.get('name', '').strip()
+			number = user_data.get('number', '').strip()
+
+			# --- Input validation ---
+			if not name:
+				logger.warning("Reservation failed: name is empty")
+				return jsonify({"flag": 1, "error": "Name is required. Please enter your name."}), 400
+			if not number:
+				logger.warning("Reservation failed: phone number is empty")
+				return jsonify({"flag": 1, "error": "Phone number is required. Please enter your phone number."}), 400
+			if not number.isdigit() or len(number) < 7:
+				logger.warning(f"Reservation failed: invalid phone number '{number}'")
+				return jsonify({"flag": 1, "error": "Please enter a valid phone number (at least 7 digits)."}), 400
+
+			for k,v in x.items():
+				if v == "reserved":
+					seats.append(k)
+					x[k] = "blocked"
+
+			if not seats:
+				logger.warning("Reservation failed: no seats selected")
+				return jsonify({"flag": 1, "error": "Please select at least one seat before reserving."}), 400
+
+			logger.info(f"Reservation attempt: name={name}, phone={number}, seats={seats}")
+			seats_string = ','.join(seats)
+
+			# --- Check if any selected seats are already booked ---
+			conn = get_db_connection()
+			try:
+				with conn.cursor() as cur:
+					placeholders = ','.join(['%s'] * len(seats))
+					cur.execute(f"SELECT seat_no FROM screen WHERE seat_no IN ({placeholders}) AND status = 'blocked'", seats)
+					already_booked = [row[0] for row in cur.fetchall()]
+				if already_booked:
+					conn.close()
+					logger.warning(f"Seats already booked: {already_booked}")
+					return jsonify({"flag": 1, "error": f"Seats {', '.join(already_booked)} are already booked. Please select different seats."}), 409
+
+				update(seats, conn)
+				with conn.cursor() as cur:
+					cur.execute("INSERT INTO userdetails (phone_no, name, seats) VALUES (%s,%s,%s)", (number, name, seats_string))
+					logger.info(f"Booking saved: {name} - {number} - {seats_string}")
+				conn.commit()
+				conn.close()
+				return jsonify({"flag": 0, "message": f"Successfully reserved seats: {seats_string}"})
+
+			except psycopg2.errors.UniqueViolation:
+				conn.rollback()
+				conn.close()
+				logger.error(f"Duplicate phone number: {number}")
+				return jsonify({"flag": 1, "error": f"Phone number {number} has already been used for a booking. Please use a different phone number."}), 409
+
+			except psycopg2.Error as db_err:
+				if conn:
+					conn.rollback()
+					conn.close()
+				logger.error(f"Database error during reservation: {db_err}")
+				return jsonify({"flag": 1, "error": "A database error occurred. Please try again later."}), 500
+
+		except json.JSONDecodeError as e:
+			logger.error(f"Invalid request data: {e}")
+			return jsonify({"flag": 1, "error": "Invalid request data. Please refresh the page and try again."}), 400
+
+		except Exception as e:
+			logger.error(f"Unexpected error during reservation: {e}")
+			return jsonify({"flag": 1, "error": "An unexpected error occurred. Please try again."}), 500
+
+	return jsonify({"flag": 1, "error": "Invalid request method."}), 405
 
 def update(seats,conn):
 	for i in seats:

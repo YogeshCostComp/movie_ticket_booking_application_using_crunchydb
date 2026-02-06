@@ -93,7 +93,7 @@ def get_bearer_token():
         raise
 
 def query_cloud_logs(query, start_date=None, end_date=None, limit=100):
-    """Query IBM Cloud Logs using DataPrime syntax"""
+    """Query IBM Cloud Logs using DataPrime syntax. Returns a list of parsed log messages."""
     token = get_bearer_token()
     
     if not start_date:
@@ -127,7 +127,71 @@ def query_cloud_logs(query, start_date=None, end_date=None, limit=100):
         timeout=30
     )
     response.raise_for_status()
-    return response.text
+    
+    # Parse SSE response into clean log entries
+    return parse_cloud_logs_response(response.text)
+
+
+def parse_cloud_logs_response(raw_text):
+    """Parse IBM Cloud Logs SSE response into clean, readable log entries."""
+    import re
+    logs = []
+    
+    # The SSE response contains lines like: data: {"result": {"results": [...]}}
+    # Extract all JSON data lines
+    for line in raw_text.split('\n'):
+        line = line.strip()
+        if not line.startswith('data:'):
+            continue
+        json_str = line[5:].strip()  # Remove 'data: ' prefix
+        if not json_str:
+            continue
+        try:
+            data = json.loads(json_str)
+            # Skip query_id acknowledgements
+            if 'query_id' in data:
+                continue
+            # Extract results
+            results = data.get('result', {}).get('results', [])
+            for entry in results:
+                log_entry = {}
+                
+                # Extract metadata (timestamp, severity)
+                for meta in entry.get('metadata', []):
+                    if meta.get('key') == 'timestamp':
+                        log_entry['timestamp'] = meta.get('value', '')
+                    elif meta.get('key') == 'severity':
+                        sev_val = meta.get('value', '3')
+                        severity_map = {'1': 'DEBUG', '2': 'VERBOSE', '3': 'INFO', '4': 'WARNING', '5': 'ERROR', '6': 'CRITICAL'}
+                        log_entry['severity'] = severity_map.get(str(sev_val), str(sev_val))
+                
+                # Extract the actual log message from user_data
+                user_data_str = entry.get('user_data', '')
+                if user_data_str:
+                    try:
+                        user_data = json.loads(user_data_str)
+                        # Get the message
+                        msg_obj = user_data.get('message', {})
+                        if isinstance(msg_obj, dict):
+                            log_entry['message'] = msg_obj.get('message', '')
+                            log_entry['app_instance'] = msg_obj.get('_app', '')
+                        elif isinstance(msg_obj, str):
+                            log_entry['message'] = msg_obj
+                        
+                        # Get labels
+                        labels = user_data.get('label', {})
+                        log_entry['project'] = labels.get('Project', '')
+                        log_entry['stream'] = labels.get('Stream', '')
+                    except (json.JSONDecodeError, TypeError):
+                        log_entry['message'] = user_data_str
+                
+                # Only add entries that have a message
+                if log_entry.get('message'):
+                    logs.append(log_entry)
+        except (json.JSONDecodeError, TypeError):
+            continue
+    
+    return logs
 
 
 def discover_code_engine_apps():
@@ -1091,7 +1155,12 @@ def execute_mcp_tool(tool_name, args):
             limit = args.get('limit', 20)
             query = f"source logs | filter $d.app == 'codeengine' | limit {limit}"
             logs = query_cloud_logs(query, limit=limit)
-            return {"status": "success", "query": query, "logs": logs}
+            return {
+                "status": "success",
+                "log_count": len(logs),
+                "query": query,
+                "logs": logs
+            }
         
         elif tool_name == 'get_error_logs':
             hours = args.get('hours', 1)
@@ -1100,7 +1169,18 @@ def execute_mcp_tool(tool_name, args):
             end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
             query = f"source logs | filter $d.app == 'codeengine' | filter $d.message.message ~ 'error|Error|ERROR|exception|Exception|failed|Failed' | limit {limit}"
             logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
-            return {"status": "success", "query": query, "time_range": f"Last {hours} hour(s)", "logs": logs}
+            return {
+                "status": "success",
+                "error_count": len(logs),
+                "time_range": f"Last {hours} hour(s)",
+                "has_errors": len(logs) > 0,
+                "severity_summary": {
+                    "CRITICAL": sum(1 for l in logs if l.get('severity') == 'CRITICAL'),
+                    "ERROR": sum(1 for l in logs if l.get('severity') == 'ERROR'),
+                    "WARNING": sum(1 for l in logs if l.get('severity') == 'WARNING'),
+                },
+                "logs": logs
+            }
         
         elif tool_name == 'query_logs':
             query = args.get('query', 'source logs | limit 10')
@@ -1109,7 +1189,13 @@ def execute_mcp_tool(tool_name, args):
             start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
             end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
             logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
-            return {"status": "success", "query": query, "time_range": f"Last {hours} hour(s)", "logs": logs}
+            return {
+                "status": "success",
+                "log_count": len(logs),
+                "time_range": f"Last {hours} hour(s)",
+                "query": query,
+                "logs": logs
+            }
         
         elif tool_name == 'get_system_status':
             # Check app health
@@ -1185,14 +1271,24 @@ def execute_mcp_tool(tool_name, args):
             # App logs - filter for movie-ticket-project only
             query = f"source logs | filter $d.label.Project == 'movie-ticket-project' | limit {limit}"
             logs = query_cloud_logs(query, limit=limit)
-            return {"status": "success", "log_type": "Application Logs (Movie Ticket App)", "query": query, "logs": logs}
+            return {
+                "status": "success",
+                "log_type": "Application Logs (Movie Ticket App)",
+                "log_count": len(logs),
+                "logs": logs
+            }
         
         elif tool_name == 'get_platform_logs':
             limit = args.get('limit', 20)
             # Platform logs - Code Engine builds, deployments, etc. (exclude movie-ticket-project app logs)
             query = f"source logs | filter $d.app == 'codeengine' | filter $d.label.Project != 'movie-ticket-project' | limit {limit}"
             logs = query_cloud_logs(query, limit=limit)
-            return {"status": "success", "log_type": "Platform Logs (Code Engine)", "query": query, "logs": logs}
+            return {
+                "status": "success",
+                "log_type": "Platform Logs (Code Engine)",
+                "log_count": len(logs),
+                "logs": logs
+            }
         
         elif tool_name == 'stop_app':
             # Dynamically find the movie ticket app

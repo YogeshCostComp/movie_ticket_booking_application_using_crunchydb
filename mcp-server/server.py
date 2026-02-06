@@ -282,6 +282,129 @@ def get_code_engine_app_status(project_id, app_name):
         return {"status": "error", "message": f"Failed to get app status: {response.text}"}
 
 
+def get_app_instances(project_id, app_name):
+    """Get running instances of a Code Engine app with CPU/memory/restart details"""
+    token = get_bearer_token()
+    url = f"https://api.{CODE_ENGINE_REGION}.codeengine.cloud.ibm.com/v2/projects/{project_id}/apps/{app_name}/instances"
+    response = requests.get(url, headers={'Authorization': f'Bearer {token}'}, timeout=30)
+    if response.status_code == 200:
+        instances = response.json().get('instances', [])
+        instance_details = []
+        for inst in instances:
+            detail = {
+                "name": inst.get('name', ''),
+                "status": inst.get('status', 'unknown'),
+                "revision": inst.get('revision_name', ''),
+                "cpu_limit": inst.get('scale_cpu_limit', ''),
+                "memory_limit": inst.get('scale_memory_limit', ''),
+                "ephemeral_storage": inst.get('scale_ephemeral_storage_limit', ''),
+                "created_at": inst.get('created_at', ''),
+            }
+            status_details = inst.get('status_details', {})
+            if status_details:
+                detail["restarts"] = status_details.get('restarts', 0)
+                user_container = status_details.get('user_container', {})
+                if user_container:
+                    current = user_container.get('current_state', {})
+                    detail["container_status"] = current.get('container_status', 'unknown')
+                    detail["container_reason"] = current.get('reason', '')
+                    detail["started_at"] = current.get('started_at', '')
+                    if current.get('exit_code') is not None:
+                        detail["exit_code"] = current['exit_code']
+            instance_details.append(detail)
+        return {"status": "success", "instance_count": len(instances), "instances": instance_details}
+    else:
+        return {"status": "error", "message": f"Failed to get instances: {response.text}"}
+
+
+def get_app_revisions(project_id, app_name):
+    """Get deployment revisions history for an app"""
+    token = get_bearer_token()
+    url = f"https://api.{CODE_ENGINE_REGION}.codeengine.cloud.ibm.com/v2/projects/{project_id}/apps/{app_name}/revisions"
+    response = requests.get(url, headers={'Authorization': f'Bearer {token}'}, timeout=30)
+    if response.status_code == 200:
+        revisions = response.json().get('revisions', [])
+        rev_details = []
+        for rev in revisions:
+            rev_details.append({
+                "name": rev.get('name', ''),
+                "status": rev.get('status', 'unknown'),
+                "created_at": rev.get('created_at', ''),
+                "image": rev.get('image_reference', ''),
+                "cpu_limit": rev.get('scale_cpu_limit', ''),
+                "memory_limit": rev.get('scale_memory_limit', ''),
+                "min_instances": rev.get('scale_min_instances', 0),
+                "max_instances": rev.get('scale_max_instances', 0),
+            })
+        return {"status": "success", "revision_count": len(revisions), "revisions": rev_details}
+    else:
+        return {"status": "error", "message": f"Failed to get revisions: {response.text}"}
+
+
+def get_build_status(project_id, limit=5):
+    """Get recent build runs status for a project"""
+    token = get_bearer_token()
+    url = f"https://api.{CODE_ENGINE_REGION}.codeengine.cloud.ibm.com/v2/projects/{project_id}/build_runs?limit={limit}"
+    response = requests.get(url, headers={'Authorization': f'Bearer {token}'}, timeout=30)
+    if response.status_code == 200:
+        build_runs = response.json().get('build_runs', [])
+        builds = []
+        for br in build_runs:
+            sd = br.get('status_details', {})
+            builds.append({
+                "name": br.get('name', ''),
+                "status": br.get('status', 'unknown'),
+                "created_at": br.get('created_at', ''),
+                "start_time": sd.get('start_time', ''),
+                "completion_time": sd.get('completion_time', ''),
+                "git_commit": sd.get('git_commit_sha', '')[:8] if sd.get('git_commit_sha') else '',
+                "build_name": br.get('build_name', ''),
+            })
+        return {"status": "success", "build_count": len(builds), "builds": builds}
+    else:
+        return {"status": "error", "message": f"Failed to get build runs: {response.text}"}
+
+
+def measure_response_times():
+    """Measure response times for multiple app endpoints"""
+    import time
+    endpoints = {
+        "homepage": APP_URL,
+        "api_seats": f"{APP_URL}/get",
+        "api_users": f"{APP_URL}/getUsersDetails",
+    }
+    results = {}
+    for name, url in endpoints.items():
+        try:
+            start = time.time()
+            resp = requests.get(url, timeout=30)
+            elapsed_ms = (time.time() - start) * 1000
+            results[name] = {
+                "url": url,
+                "status_code": resp.status_code,
+                "response_time_ms": round(elapsed_ms, 2),
+                "sla_status": "OK" if elapsed_ms < 3000 else ("WARNING" if elapsed_ms < 10000 else "BREACH"),
+                "content_length": len(resp.content)
+            }
+        except requests.exceptions.Timeout:
+            results[name] = {"url": url, "status_code": 0, "response_time_ms": 30000, "sla_status": "BREACH", "error": "Timeout"}
+        except Exception as e:
+            results[name] = {"url": url, "status_code": 0, "response_time_ms": -1, "sla_status": "BREACH", "error": str(e)}
+    
+    # Calculate averages
+    valid_times = [r['response_time_ms'] for r in results.values() if r['response_time_ms'] > 0]
+    avg_ms = round(sum(valid_times) / len(valid_times), 2) if valid_times else 0
+    breaches = sum(1 for r in results.values() if r['sla_status'] == 'BREACH')
+    
+    return {
+        "status": "success",
+        "avg_response_time_ms": avg_ms,
+        "sla_breaches": breaches,
+        "sla_thresholds": {"OK": "< 3s", "WARNING": "3-10s", "BREACH": "> 10s"},
+        "endpoints": results
+    }
+
+
 # ============== MCP Tools ==============
 
 @app.route('/health', methods=['GET'])
@@ -712,6 +835,72 @@ MCP_TOOLS = [
             "properties": {},
             "required": []
         }
+    },
+    {
+        "name": "get_app_instances",
+        "description": "Get detailed info about running app instances including CPU/memory utilization, container state, restart count, and OOMKilled events. Use this for instance-level resource monitoring.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_response_times",
+        "description": "Measure response times (latency) for all app endpoints and check against SLA thresholds. Reports OK (<3s), WARNING (3-10s), or BREACH (>10s) per endpoint.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_deployment_history",
+        "description": "Get deployment revision history for the Movie Ticket App showing all past deployments, their status, image versions, and resource configurations.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_build_status",
+        "description": "Get recent CI/CD build runs showing build success/failure status, git commits, and build times for the Movie Ticket App.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of recent builds to return",
+                    "default": 5
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_failure_analysis",
+        "description": "Analyze application failures from logs including exceptions, HTTP 500 errors, database errors, OOM kills, and timeouts. Provides a categorized failure summary.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "Number of hours to look back for failures",
+                    "default": 24
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_sre_dashboard",
+        "description": "Get a comprehensive SRE dashboard combining app health, response times, instance CPU/memory, error rates, deployment status, and SLA compliance in one view.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
     }
 ]
 
@@ -1012,6 +1201,146 @@ def execute_mcp_tool(tool_name, args):
                 "message": f"Found {len(discovery['apps'])} app(s) across Code Engine projects",
                 "apps": discovery['apps']
             }
+        
+        elif tool_name == 'get_app_instances':
+            # Get detailed instance info for the movie ticket app
+            app_info = find_app('movie-ticket')
+            if not app_info:
+                return {"status": "error", "message": "Could not find Movie Ticket App"}
+            result = get_app_instances(app_info['project_id'], app_info['app_name'])
+            result['app_name'] = app_info['app_name']
+            result['project_name'] = app_info.get('project_name', '')
+            return result
+        
+        elif tool_name == 'get_response_times':
+            # Measure response times and check SLAs
+            result = measure_response_times()
+            return result
+        
+        elif tool_name == 'get_deployment_history':
+            # Get revision history
+            app_info = find_app('movie-ticket')
+            if not app_info:
+                return {"status": "error", "message": "Could not find Movie Ticket App"}
+            result = get_app_revisions(app_info['project_id'], app_info['app_name'])
+            result['app_name'] = app_info['app_name']
+            return result
+        
+        elif tool_name == 'get_build_status':
+            # Get recent builds
+            app_info = find_app('movie-ticket')
+            if not app_info:
+                return {"status": "error", "message": "Could not find Movie Ticket App"}
+            limit = args.get('limit', 5)
+            result = get_build_status(app_info['project_id'], limit=limit)
+            result['app_name'] = app_info['app_name']
+            return result
+        
+        elif tool_name == 'get_failure_analysis':
+            hours = args.get('hours', 24)
+            start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            
+            # Query for different failure categories
+            categories = {
+                "exceptions": "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'exception|Exception|EXCEPTION|Traceback' | limit 50",
+                "http_errors": "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ '500|502|503|504|Internal Server Error' | limit 50",
+                "database_errors": "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'psycopg2|DatabaseError|OperationalError|connection refused|timeout expired' | limit 50",
+                "app_crashes": "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'OOMKilled|killed|crash|segfault|memory' | limit 50",
+            }
+            
+            failure_summary = {}
+            total_failures = 0
+            for category, query in categories.items():
+                logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=50)
+                count = len(logs) if isinstance(logs, list) else 0
+                failure_summary[category] = {
+                    "count": count,
+                    "sample_logs": logs[:3] if isinstance(logs, list) and logs else []
+                }
+                total_failures += count
+            
+            return {
+                "status": "success",
+                "time_range": f"Last {hours} hour(s)",
+                "total_failures": total_failures,
+                "severity": "CRITICAL" if total_failures > 20 else ("WARNING" if total_failures > 5 else "HEALTHY"),
+                "categories": failure_summary
+            }
+        
+        elif tool_name == 'get_sre_dashboard':
+            import time as time_module
+            dashboard = {"timestamp": datetime.utcnow().isoformat()}
+            
+            # 1. App Health
+            try:
+                app_resp = requests.get(APP_URL, timeout=30)
+                dashboard["app_health"] = {
+                    "status": "healthy" if app_resp.status_code == 200 else "unhealthy",
+                    "response_time_ms": round(app_resp.elapsed.total_seconds() * 1000, 2)
+                }
+            except Exception as e:
+                dashboard["app_health"] = {"status": "unhealthy", "error": str(e)}
+            
+            # 2. Database Health
+            try:
+                db_resp = requests.get(f"{APP_URL}/get", timeout=30)
+                dashboard["database_health"] = {
+                    "status": "healthy" if db_resp.status_code == 200 else "unhealthy",
+                    "response_time_ms": round(db_resp.elapsed.total_seconds() * 1000, 2)
+                }
+            except Exception as e:
+                dashboard["database_health"] = {"status": "unhealthy", "error": str(e)}
+            
+            # 3. Response Times / SLA
+            dashboard["response_times"] = measure_response_times()
+            
+            # 4. Instance Info
+            app_info = find_app('movie-ticket')
+            if app_info:
+                instances = get_app_instances(app_info['project_id'], app_info['app_name'])
+                dashboard["instances"] = {
+                    "count": instances.get('instance_count', 0),
+                    "details": instances.get('instances', []),
+                    "app_name": app_info['app_name'],
+                    "cpu_limit": app_info.get('cpu_limit', 'N/A'),
+                    "memory_limit": app_info.get('memory_limit', 'N/A'),
+                }
+                
+                # Check for restarts/OOM
+                total_restarts = sum(i.get('restarts', 0) for i in instances.get('instances', []))
+                oom_killed = any(i.get('container_reason') == 'OOMKilled' for i in instances.get('instances', []))
+                dashboard["instances"]["total_restarts"] = total_restarts
+                dashboard["instances"]["oom_detected"] = oom_killed
+            
+            # 5. Recent Errors (last 1 hour)
+            error_query = "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'error|Error|ERROR|exception|Exception|failed|Failed' | limit 20"
+            error_logs = query_cloud_logs(error_query, limit=20)
+            error_count = len(error_logs) if isinstance(error_logs, list) else 0
+            dashboard["recent_errors"] = {
+                "count": error_count,
+                "severity": "CRITICAL" if error_count > 10 else ("WARNING" if error_count > 3 else "OK")
+            }
+            
+            # 6. Overall SRE Score
+            issues = []
+            if dashboard["app_health"]["status"] != "healthy":
+                issues.append("App unhealthy")
+            if dashboard["database_health"]["status"] != "unhealthy" and dashboard["database_health"]["status"] != "healthy":
+                issues.append("DB issue")
+            if dashboard.get("instances", {}).get("oom_detected"):
+                issues.append("OOMKilled detected")
+            if dashboard.get("instances", {}).get("total_restarts", 0) > 5:
+                issues.append(f"High restart count: {dashboard['instances']['total_restarts']}")
+            if dashboard["response_times"].get("sla_breaches", 0) > 0:
+                issues.append(f"SLA breaches: {dashboard['response_times']['sla_breaches']}")
+            if error_count > 10:
+                issues.append(f"High error rate: {error_count} errors/hour")
+            
+            dashboard["overall_status"] = "HEALTHY" if not issues else ("DEGRADED" if len(issues) <= 2 else "CRITICAL")
+            dashboard["issues"] = issues if issues else ["No issues detected"]
+            
+            return dashboard
         
         else:
             return {"error": f"Unknown tool: {tool_name}"}

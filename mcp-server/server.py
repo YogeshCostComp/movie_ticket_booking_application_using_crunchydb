@@ -632,7 +632,7 @@ def get_error_logs():
         end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
         
         # Filter for error/exception logs from all apps (runtime + build)
-        query = f"source logs | filter $d.message.message ~ 'error|Error|ERROR|exception|Exception|failed|Failed' | limit {limit}"
+        query = f"source logs | filter $d.message.message ~ /error|Error|ERROR|exception|Exception|failed|Failed|SIMULATED/ | limit {limit}"
         logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
         
         return jsonify({
@@ -1175,7 +1175,7 @@ def execute_mcp_tool(tool_name, args):
             limit = args.get('limit', 50)
             start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
             end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
-            query = f"source logs | filter $d.message.message ~ 'error|Error|ERROR|exception|Exception|failed|Failed' | limit {limit}"
+            query = f"source logs | filter $d.message.message ~ /error|Error|ERROR|exception|Exception|failed|Failed|SIMULATED/ | limit {limit}"
             logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
             return {
                 "status": "success",

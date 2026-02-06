@@ -711,10 +711,49 @@ function removeToast() {
 <input type="number" id="phone" placeholder="Enter the phone number" style="width: 100%;" required/>
 <button onclick="reserve_seats()" class="button"><span>Reserve Seats</span></button>
 
+<br><br>
+<div style="border-top: 2px solid #333; padding-top: 15px; margin-top: 20px;">
+  <h3 style="color: #f44336; margin-bottom: 10px;">🛠️ SRE Error Simulator</h3>
+  <p style="color: #aaa; font-size: 13px; margin-bottom: 10px;">Generate test errors for SRE agent monitoring</p>
+  <select id="errorType" style="width: 100%; padding: 10px; border-radius: 4px; font-size: 14px; margin-bottom: 10px; background: #222; color: white; border: 1px solid #555;">
+    <option value="all">🔥 All Errors (fire everything)</option>
+    <option value="500">500 - Internal Server Error</option>
+    <option value="404">404 - Not Found</option>
+    <option value="503">503 - Service Unavailable</option>
+    <option value="db_error">Database Connection Error</option>
+    <option value="timeout">Request Timeout (504)</option>
+    <option value="exception">Unhandled Exception (Traceback)</option>
+  </select>
+  <button onclick="simulateError()" style="border-radius:4px;background-color:#f44336;border:none;color:#fff;text-align:center;font-size:16px;padding:12px;width:100%;cursor:pointer;">⚡ Generate Error</button>
+  <div id="error-result" style="margin-top: 10px;"></div>
 </div>
 
+</div>
 
+<script>
+function simulateError() {
+  var errorType = document.getElementById('errorType').value;
+  var resultDiv = document.getElementById('error-result');
+  resultDiv.innerHTML = '<span style="color:#ffa726;">Generating error...</span>';
 
+  $.ajax({
+    url: '/simulate/error',
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({error_type: errorType}),
+    complete: function(xhr) {
+      var resp;
+      try { resp = JSON.parse(xhr.responseText); } catch(e) { resp = {}; }
+      var statusCode = xhr.status;
+      var color = statusCode >= 500 ? '#f44336' : (statusCode >= 400 ? '#ff9800' : '#4CAF50');
+      resultDiv.innerHTML = '<div style="background:' + color + ';color:white;padding:12px;border-radius:6px;margin-top:8px;">' +
+        '<strong>HTTP ' + statusCode + '</strong> — ' + (resp.message || resp.error || 'Error generated') +
+        '<br><span style="font-size:12px;opacity:0.8;">Error logged to IBM Cloud Logs. Use SRE agent to query: "check error logs"</span>' +
+        '</div>';
+    }
+  });
+}
+</script>
 
 
 </body></html>

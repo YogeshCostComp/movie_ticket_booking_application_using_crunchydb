@@ -214,7 +214,92 @@ def staus():
 	x = json.dumps(data_new)
 	return x
 
-    
+
+# ===== Error Simulation Endpoints (for SRE testing) =====
+
+@app.route("/simulate/error", methods=['POST'])
+def simulate_error():
+    """Generate simulated errors for SRE agent testing.
+    Accepts JSON body: {"error_type": "500|404|db_error|timeout|exception"}
+    """
+    try:
+        data = request.get_json(force=True)
+        error_type = data.get('error_type', '500')
+    except:
+        error_type = '500'
+
+    if error_type == '404':
+        logger.error(f"SIMULATED ERROR: 404 Not Found - Resource '/fake/page' does not exist")
+        return jsonify({
+            "error": "Not Found",
+            "message": "The requested resource '/fake/page' was not found on this server.",
+            "simulated": True
+        }), 404
+
+    elif error_type == '500':
+        logger.error(f"SIMULATED ERROR: 500 Internal Server Error - Application crashed during request processing")
+        return jsonify({
+            "error": "Internal Server Error",
+            "message": "The server encountered an unexpected condition that prevented it from fulfilling the request.",
+            "simulated": True
+        }), 500
+
+    elif error_type == '503':
+        logger.error(f"SIMULATED ERROR: 503 Service Unavailable - Server is overloaded or under maintenance")
+        return jsonify({
+            "error": "Service Unavailable",
+            "message": "The server is temporarily unable to handle the request due to maintenance or overload.",
+            "simulated": True
+        }), 503
+
+    elif error_type == 'db_error':
+        logger.error(f"SIMULATED ERROR: psycopg2.OperationalError - connection to database 'hippo' failed: Connection refused")
+        logger.error(f"SIMULATED ERROR: DatabaseError - could not translate host name to address: Name or service not known")
+        return jsonify({
+            "error": "Database Connection Error",
+            "message": "psycopg2.OperationalError: connection refused - database server is not accepting connections.",
+            "simulated": True
+        }), 500
+
+    elif error_type == 'timeout':
+        logger.error(f"SIMULATED ERROR: Request timeout exceeded - operation took longer than 30 seconds")
+        logger.error(f"SIMULATED ERROR: TimeoutError - The read operation timed out")
+        return jsonify({
+            "error": "Request Timeout",
+            "message": "The server timed out waiting for the request to complete.",
+            "simulated": True
+        }), 504
+
+    elif error_type == 'exception':
+        logger.error(f"SIMULATED ERROR: Unhandled Exception - Traceback (most recent call last):")
+        logger.error(f"SIMULATED ERROR:   File 'app.py', line 42, in process_booking")
+        logger.error(f"SIMULATED ERROR:   ZeroDivisionError: division by zero")
+        logger.error(f"SIMULATED ERROR: Exception: Critical application failure in booking module")
+        return jsonify({
+            "error": "Unhandled Exception",
+            "message": "Traceback: ZeroDivisionError - division by zero in process_booking",
+            "simulated": True
+        }), 500
+
+    elif error_type == 'all':
+        # Fire all error types at once
+        logger.error("SIMULATED ERROR: 404 Not Found - Resource does not exist")
+        logger.error("SIMULATED ERROR: 500 Internal Server Error - Application crash")
+        logger.error("SIMULATED ERROR: 503 Service Unavailable - Overloaded")
+        logger.error("SIMULATED ERROR: psycopg2.OperationalError - connection to database failed")
+        logger.error("SIMULATED ERROR: TimeoutError - operation timed out after 30s")
+        logger.error("SIMULATED ERROR: Traceback (most recent call last): ZeroDivisionError")
+        logger.error("SIMULATED ERROR: Exception: Critical failure in booking module")
+        return jsonify({
+            "message": "All error types simulated (404, 500, 503, db_error, timeout, exception). Check Cloud Logs.",
+            "errors_generated": 7,
+            "simulated": True
+        }), 500
+
+    else:
+        return jsonify({"error": f"Unknown error type: {error_type}", "valid_types": ["404", "500", "503", "db_error", "timeout", "exception", "all"]}), 400
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))  # Code Engine uses PORT env var
     logger.info(f"Starting Movie Ticket Booking App on port {port}")

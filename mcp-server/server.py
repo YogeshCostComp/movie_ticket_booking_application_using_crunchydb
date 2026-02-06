@@ -375,6 +375,7 @@ def measure_response_times(num_samples=5):
     }
     results = {}
     all_times = []
+    total_errors = 0
     
     for name, url in endpoints.items():
         samples = []
@@ -406,6 +407,10 @@ def measure_response_times(num_samples=5):
         else:
             p50 = p90 = p95 = p99 = avg = -1
         
+        total_errors += errors
+        # SLA: 95% of requests should complete under target
+        sla_ok = "PASS" if p95 < 3000 else ("WARNING" if p95 < 5000 else "FAIL")
+        
         results[name] = {
             "url": url,
             "status_code": status_code,
@@ -418,46 +423,37 @@ def measure_response_times(num_samples=5):
             "min_ms": round(min(samples), 2) if samples else -1,
             "max_ms": round(max(samples), 2) if samples else -1,
             "error_count": errors,
-            "sla_status": "OK" if p90 < 3000 else ("WARNING" if p90 < 10000 else "BREACH"),
+            "sla_status": sla_ok,
         }
     
     # Global percentiles across all endpoints
     if all_times:
         all_sorted = sorted(all_times)
-        global_p50 = all_sorted[len(all_sorted) // 2]
-        global_p90 = all_sorted[int(len(all_sorted) * 0.9)]
-        global_p95 = all_sorted[int(len(all_sorted) * 0.95)]
+        n = len(all_sorted)
+        global_p50 = all_sorted[int(n * 0.50)]
+        global_p90 = all_sorted[int(n * 0.90)] if n >= 2 else all_sorted[-1]
+        global_p95 = all_sorted[int(n * 0.95)] if n >= 2 else all_sorted[-1]
         global_p99 = all_sorted[-1]
-        global_avg = sum(all_sorted) / len(all_sorted)
+        global_avg = sum(all_sorted) / n
+        pct_under_3s = round((sum(1 for t in all_times if t < 3000) / n) * 100, 1)
     else:
         global_p50 = global_p90 = global_p95 = global_p99 = global_avg = -1
+        pct_under_3s = 0
     
-    breaches = sum(1 for r in results.values() if r['sla_status'] == 'BREACH')
+    sla_met = pct_under_3s >= 95
     
     return {
         "status": "success",
         "total_requests": len(all_times),
-        "global_latency": {
-            "avg_ms": round(global_avg, 2),
-            "p50_ms": round(global_p50, 2),
-            "p90_ms": round(global_p90, 2),
-            "p95_ms": round(global_p95, 2),
-            "p99_ms": round(global_p99, 2),
-        },
-        "sla_breaches": breaches,
-        "sla_thresholds": {
-            "p90_target": "< 3s (3000ms)",
-            "p95_target": "< 5s (5000ms)",
-            "OK": "P90 < 3s",
-            "WARNING": "P90 3-10s",
-            "BREACH": "P90 > 10s"
-        },
-        "sla_compliance": {
-            "p90_under_3s": f"{sum(1 for t in all_times if t < 3000)}/{len(all_times)} requests" if all_times else "N/A",
-            "p90_pct": round((sum(1 for t in all_times if t < 3000) / len(all_times)) * 100, 1) if all_times else 0,
-            "p95_under_5s": f"{sum(1 for t in all_times if t < 5000)}/{len(all_times)} requests" if all_times else "N/A",
-            "p95_pct": round((sum(1 for t in all_times if t < 5000) / len(all_times)) * 100, 1) if all_times else 0,
-        },
+        "total_errors": total_errors,
+        "p50_ms": round(global_p50, 2),
+        "p90_ms": round(global_p90, 2),
+        "p95_ms": round(global_p95, 2),
+        "p99_ms": round(global_p99, 2),
+        "avg_ms": round(global_avg, 2),
+        "pct_requests_under_3s": pct_under_3s,
+        "sla_target": "95% of requests < 3s",
+        "sla_met": sla_met,
         "endpoints": results
     }
 
@@ -904,7 +900,7 @@ MCP_TOOLS = [
     },
     {
         "name": "get_response_times",
-        "description": "Measure response times (latency) for all app endpoints with percentile metrics (P50/P90/P95/P99) and SLA compliance. Takes multiple samples per endpoint. SLA targets: P90 < 3s, P95 < 5s.",
+        "description": "Measure response times (latency) for all app endpoints with percentile metrics (P50/P90/P95/P99). SLA target: 95% of requests must complete under 3 seconds. Takes 5 samples per endpoint.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -952,7 +948,7 @@ MCP_TOOLS = [
     },
     {
         "name": "get_sre_dashboard",
-        "description": "Get a comprehensive SRE dashboard based on the 4 Golden Signals: Latency (P50/P90/P95/P99 with SLA compliance), Error Rate (error % and categories), Saturation (CPU, memory, instance count, OOM), and Traffic (request counts). Includes overall health score.",
+        "description": "Get a comprehensive SRE dashboard based on Google's 4 Golden Signals. Returns a clean table of metrics with current values, SLA targets (95%), and pass/fail status. Signals: Latency (P50/P90/P95/P99), Errors (error rate, HTTP 5xx, DB errors), Saturation (CPU, memory, instances, OOMKills), Traffic (request volume, seat occupancy). Includes a health score out of 100 and actionable recommendations. Present the metrics array as a table.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -1326,271 +1322,242 @@ def execute_mcp_tool(tool_name, args):
             }
         
         elif tool_name == 'get_sre_dashboard':
-            import time as time_module
-            dashboard = {
-                "timestamp": datetime.utcnow().isoformat(),
-                "framework": "4 Golden Signals (Google SRE)"
-            }
             issues = []
             
-            # ========================================
-            # SIGNAL 1: LATENCY
-            # ========================================
-            try:
-                latency_data = measure_response_times(num_samples=5)
-                gl = latency_data.get("global_latency", {})
-                sla = latency_data.get("sla_compliance", {})
-                p90_pct = sla.get("p90_pct", 0)
-                p95_pct = sla.get("p95_pct", 0)
-                
-                # Determine latency health
-                if gl.get("p90_ms", 0) < 3000:
-                    latency_status = "HEALTHY"
-                elif gl.get("p90_ms", 0) < 10000:
-                    latency_status = "DEGRADED"
-                    issues.append(f"P90 latency is {round(gl['p90_ms'])}ms (target: <3000ms)")
-                else:
-                    latency_status = "CRITICAL"
-                    issues.append(f"P90 latency BREACH: {round(gl['p90_ms'])}ms (target: <3000ms)")
-                
-                dashboard["1_latency"] = {
-                    "status": latency_status,
-                    "global_percentiles": {
-                        "p50_ms": gl.get("p50_ms", -1),
-                        "p90_ms": gl.get("p90_ms", -1),
-                        "p95_ms": gl.get("p95_ms", -1),
-                        "p99_ms": gl.get("p99_ms", -1),
-                        "avg_ms": gl.get("avg_ms", -1),
-                    },
-                    "sla_compliance": {
-                        "p90_target": "90% of requests < 3s",
-                        "p90_actual_pct": p90_pct,
-                        "p90_met": p90_pct >= 90,
-                        "p95_target": "95% of requests < 5s",
-                        "p95_actual_pct": p95_pct,
-                        "p95_met": p95_pct >= 95,
-                    },
-                    "per_endpoint": latency_data.get("endpoints", {}),
-                }
-            except Exception as e:
-                dashboard["1_latency"] = {"status": "ERROR", "error": str(e)}
-                issues.append(f"Could not measure latency: {e}")
+            # ---- Collect all raw data first ----
+            # Latency
+            latency = measure_response_times(num_samples=5)
+            p50 = latency.get('p50_ms', -1)
+            p90 = latency.get('p90_ms', -1)
+            p95 = latency.get('p95_ms', -1)
+            p99 = latency.get('p99_ms', -1)
+            pct_under_3s = latency.get('pct_requests_under_3s', 0)
+            latency_sla_met = latency.get('sla_met', False)
             
-            # ========================================
-            # SIGNAL 2: ERRORS
-            # ========================================
+            # Error rate
+            total_sampled = latency.get('total_requests', 0)
+            total_errors = latency.get('total_errors', 0)
+            error_rate = round((total_errors / total_sampled) * 100, 2) if total_sampled > 0 else 0
+            
+            # App & DB health
             try:
-                # App health check
                 app_resp = requests.get(APP_URL, timeout=30)
-                app_healthy = app_resp.status_code == 200
-                
-                # DB health check
-                db_resp = requests.get(f"{APP_URL}/get", timeout=30)
-                db_healthy = db_resp.status_code == 200
-                
-                # Error logs from last 1 hour
-                error_query = "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'error|Error|ERROR|exception|Exception|failed|Failed|500|502|503' | limit 100"
-                error_logs = query_cloud_logs(error_query, limit=100)
-                error_count = len(error_logs) if isinstance(error_logs, list) else 0
-                
-                # Categorize errors
-                http_errors = 0
-                db_errors = 0
-                app_exceptions = 0
-                if isinstance(error_logs, list):
-                    for log in error_logs:
-                        msg = str(log).lower()
-                        if '500' in msg or '502' in msg or '503' in msg or '504' in msg:
-                            http_errors += 1
-                        elif 'psycopg2' in msg or 'database' in msg or 'connection' in msg:
-                            db_errors += 1
-                        elif 'exception' in msg or 'traceback' in msg:
-                            app_exceptions += 1
-                
-                # Calculate error rate from latency measurement
-                total_requests_sampled = latency_data.get("total_requests", 0) if 'latency_data' in dir() else 0
-                endpoint_errors = sum(r.get('error_count', 0) for r in latency_data.get("endpoints", {}).values()) if 'latency_data' in dir() else 0
-                error_rate_pct = round((endpoint_errors / total_requests_sampled) * 100, 2) if total_requests_sampled > 0 else 0
-                
-                if not app_healthy:
-                    issues.append("App is unhealthy (non-200 response)")
-                if not db_healthy:
-                    issues.append("Database is unhealthy (non-200 response)")
-                if error_count > 10:
-                    issues.append(f"High error rate: {error_count} errors in last hour")
-                if error_rate_pct > 5:
-                    issues.append(f"Request error rate: {error_rate_pct}%")
-                
-                error_status = "HEALTHY"
-                if not app_healthy or not db_healthy or error_rate_pct > 5:
-                    error_status = "CRITICAL"
-                elif error_count > 10 or error_rate_pct > 1:
-                    error_status = "DEGRADED"
-                
-                dashboard["2_errors"] = {
-                    "status": error_status,
-                    "app_health": "healthy" if app_healthy else "unhealthy",
-                    "app_response_time_ms": round(app_resp.elapsed.total_seconds() * 1000, 2),
-                    "db_health": "healthy" if db_healthy else "unhealthy",
-                    "db_response_time_ms": round(db_resp.elapsed.total_seconds() * 1000, 2),
-                    "error_rate_pct": error_rate_pct,
-                    "errors_last_hour": error_count,
-                    "error_breakdown": {
-                        "http_5xx": http_errors,
-                        "database_errors": db_errors,
-                        "app_exceptions": app_exceptions,
-                        "other": error_count - http_errors - db_errors - app_exceptions
-                    },
-                    "error_budget": {
-                        "target_error_rate": "< 1%",
-                        "current_rate": f"{error_rate_pct}%",
-                        "budget_remaining": f"{max(0, 1.0 - error_rate_pct)}%" if error_rate_pct <= 1 else "EXHAUSTED"
-                    }
-                }
-            except Exception as e:
-                dashboard["2_errors"] = {"status": "ERROR", "error": str(e)}
-                issues.append(f"Could not check errors: {e}")
+                app_status = 'UP' if app_resp.status_code == 200 else 'DOWN'
+                app_latency_ms = round(app_resp.elapsed.total_seconds() * 1000)
+            except:
+                app_status = 'DOWN'
+                app_latency_ms = -1
             
-            # ========================================
-            # SIGNAL 3: SATURATION
-            # ========================================
+            try:
+                db_resp = requests.get(f"{APP_URL}/get", timeout=30)
+                db_status = 'UP' if db_resp.status_code == 200 else 'DOWN'
+                db_latency_ms = round(db_resp.elapsed.total_seconds() * 1000)
+            except:
+                db_status = 'DOWN'
+                db_latency_ms = -1
+            
+            # Error logs
+            error_query = "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'error|Error|ERROR|exception|Exception|500|502|503' | limit 100"
+            error_logs = query_cloud_logs(error_query, limit=100)
+            log_error_count = len(error_logs) if isinstance(error_logs, list) else 0
+            
+            # Categorize
+            http_5xx = db_errs = exceptions = 0
+            if isinstance(error_logs, list):
+                for log in error_logs:
+                    msg = str(log).lower()
+                    if any(c in msg for c in ['500', '502', '503', '504']):
+                        http_5xx += 1
+                    elif any(c in msg for c in ['psycopg2', 'database', 'operationalerror']):
+                        db_errs += 1
+                    elif any(c in msg for c in ['exception', 'traceback']):
+                        exceptions += 1
+            
+            # Saturation (instances, CPU, memory)
+            instance_count = 0
+            cpu_limit = 'N/A'
+            memory_limit = 'N/A'
+            total_restarts = 0
+            oom_killed = False
+            min_scale = 'N/A'
+            max_scale = 'N/A'
             try:
                 app_info = find_app('movie-ticket')
-                saturation_status = "HEALTHY"
                 if app_info:
-                    instances = get_app_instances(app_info['project_id'], app_info['app_name'])
-                    instance_list = instances.get('instances', [])
-                    instance_count = instances.get('instance_count', 0)
-                    
+                    inst_data = get_app_instances(app_info['project_id'], app_info['app_name'])
+                    instance_list = inst_data.get('instances', [])
+                    instance_count = inst_data.get('instance_count', 0)
                     total_restarts = sum(i.get('restarts', 0) for i in instance_list)
                     oom_killed = any(i.get('container_reason') == 'OOMKilled' for i in instance_list)
-                    
-                    # Parse CPU/memory limits
                     cpu_limit = app_info.get('cpu_limit', 'N/A')
                     memory_limit = app_info.get('memory_limit', 'N/A')
-                    
-                    if oom_killed:
-                        saturation_status = "CRITICAL"
-                        issues.append("OOMKilled detected - memory saturation")
-                    elif total_restarts > 5:
-                        saturation_status = "DEGRADED"
-                        issues.append(f"High restart count: {total_restarts}")
-                    elif instance_count == 0:
-                        saturation_status = "CRITICAL"
-                        issues.append("No running instances - app may be scaled to 0")
-                    
-                    dashboard["3_saturation"] = {
-                        "status": saturation_status,
-                        "instances": {
-                            "running": instance_count,
-                            "min_scale": app_info.get('min_scale', 'N/A'),
-                            "max_scale": app_info.get('max_scale', 'N/A'),
-                        },
-                        "resource_limits": {
-                            "cpu": cpu_limit,
-                            "memory": memory_limit,
-                        },
-                        "health_indicators": {
-                            "total_restarts": total_restarts,
-                            "oom_killed": oom_killed,
-                            "restart_severity": "CRITICAL" if total_restarts > 10 else ("WARNING" if total_restarts > 3 else "OK"),
-                        },
-                        "instance_details": instance_list,
-                    }
-                else:
-                    dashboard["3_saturation"] = {"status": "UNKNOWN", "error": "Could not find Movie Ticket App via Code Engine API"}
-                    issues.append("Cannot determine saturation - app not found in Code Engine")
-            except Exception as e:
-                dashboard["3_saturation"] = {"status": "ERROR", "error": str(e)}
-                issues.append(f"Could not check saturation: {e}")
+                    min_scale = app_info.get('min_scale', 'N/A')
+                    max_scale = app_info.get('max_scale', 'N/A')
+            except:
+                pass
             
-            # ========================================
-            # SIGNAL 4: TRAFFIC
-            # ========================================
+            # Traffic / seat occupancy
+            total_seats = booked_seats = available_seats = 0
+            occupancy_pct = 0.0
             try:
-                # Get recent traffic from logs
-                traffic_query = "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'GET|POST|request|Request' | limit 100"
-                traffic_logs = query_cloud_logs(traffic_query, limit=100)
-                traffic_count = len(traffic_logs) if isinstance(traffic_logs, list) else 0
-                
-                # Count booking-related traffic
-                booking_query = "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'update|INSERT|booking|reserve|Reservation' | limit 100"
-                booking_logs = query_cloud_logs(booking_query, limit=100)
-                booking_count = len(booking_logs) if isinstance(booking_logs, list) else 0
-                
-                # Get seat utilization for capacity insight
-                try:
-                    seats_resp = requests.get(f"{APP_URL}/get", timeout=15)
-                    if seats_resp.status_code == 200:
-                        seat_data = seats_resp.json()
-                        total_seats = len(seat_data)
-                        booked_seats = sum(1 for s in seat_data.values() if s == 'blocked')
-                        available_seats = total_seats - booked_seats
-                        occupancy_pct = round((booked_seats / total_seats) * 100, 1) if total_seats > 0 else 0
-                    else:
-                        total_seats = booked_seats = available_seats = 0
-                        occupancy_pct = 0
-                except:
-                    total_seats = booked_seats = available_seats = 0
-                    occupancy_pct = 0
-                
-                traffic_status = "HEALTHY"
-                if traffic_count == 0:
-                    traffic_status = "WARNING"
-                    issues.append("No traffic detected in recent logs")
-                
-                dashboard["4_traffic"] = {
-                    "status": traffic_status,
-                    "requests_in_logs": traffic_count,
-                    "booking_transactions": booking_count,
-                    "seat_utilization": {
-                        "total_seats": total_seats,
-                        "booked": booked_seats,
-                        "available": available_seats,
-                        "occupancy_pct": occupancy_pct,
-                    },
-                    "note": "Traffic counts are sampled from recent Cloud Logs (up to 100 entries)"
-                }
-            except Exception as e:
-                dashboard["4_traffic"] = {"status": "ERROR", "error": str(e)}
+                seats_resp = requests.get(f"{APP_URL}/get", timeout=15)
+                if seats_resp.status_code == 200:
+                    seat_data = seats_resp.json()
+                    total_seats = len(seat_data)
+                    booked_seats = sum(1 for s in seat_data.values() if s == 'blocked')
+                    available_seats = total_seats - booked_seats
+                    occupancy_pct = round((booked_seats / total_seats) * 100, 1) if total_seats > 0 else 0
+            except:
+                pass
             
-            # ========================================
-            # OVERALL SRE HEALTH SCORE
-            # ========================================
-            signal_statuses = [
-                dashboard.get("1_latency", {}).get("status", "UNKNOWN"),
-                dashboard.get("2_errors", {}).get("status", "UNKNOWN"),
-                dashboard.get("3_saturation", {}).get("status", "UNKNOWN"),
-                dashboard.get("4_traffic", {}).get("status", "UNKNOWN"),
-            ]
-            critical_count = signal_statuses.count("CRITICAL")
-            degraded_count = signal_statuses.count("DEGRADED")
-            error_count_signals = signal_statuses.count("ERROR")
+            # Traffic from logs
+            traffic_query = "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'GET|POST|request' | limit 100"
+            traffic_logs = query_cloud_logs(traffic_query, limit=100)
+            request_count = len(traffic_logs) if isinstance(traffic_logs, list) else 0
             
-            if critical_count > 0 or error_count_signals > 1:
-                overall = "CRITICAL"
-            elif degraded_count > 0 or error_count_signals > 0:
-                overall = "DEGRADED"
+            booking_query = "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'update|INSERT|Reservation' | limit 100"
+            booking_logs = query_cloud_logs(booking_query, limit=100)
+            booking_count = len(booking_logs) if isinstance(booking_logs, list) else 0
+            
+            # ---- Build issues list ----
+            if not latency_sla_met:
+                issues.append(f"Latency SLA not met: only {pct_under_3s}% requests under 3s (target: 95%)")
+            if app_status == 'DOWN':
+                issues.append("Application is DOWN")
+            if db_status == 'DOWN':
+                issues.append("Database is DOWN")
+            if error_rate > 5:
+                issues.append(f"High request error rate: {error_rate}%")
+            if log_error_count > 10:
+                issues.append(f"{log_error_count} errors found in recent logs")
+            if oom_killed:
+                issues.append("OOMKilled detected — memory limit exceeded")
+            if total_restarts > 5:
+                issues.append(f"High container restart count: {total_restarts}")
+            if instance_count == 0:
+                issues.append("No running instances — app may be scaled to zero")
+            if request_count == 0:
+                issues.append("No traffic detected in recent logs")
+            
+            # ---- Determine per-signal and overall status ----
+            def signal_status(conditions_critical, conditions_degraded):
+                if any(conditions_critical):
+                    return 'CRITICAL'
+                if any(conditions_degraded):
+                    return 'DEGRADED'
+                return 'HEALTHY'
+            
+            latency_status = signal_status(
+                [p95 > 10000],
+                [p95 > 3000 or not latency_sla_met]
+            )
+            error_status = signal_status(
+                [app_status == 'DOWN', db_status == 'DOWN', error_rate > 5],
+                [error_rate > 1, log_error_count > 10]
+            )
+            saturation_status = signal_status(
+                [oom_killed, instance_count == 0],
+                [total_restarts > 5]
+            )
+            traffic_status = signal_status(
+                [],
+                [request_count == 0]
+            )
+            
+            statuses = [latency_status, error_status, saturation_status, traffic_status]
+            if 'CRITICAL' in statuses:
+                overall = 'CRITICAL'
+            elif 'DEGRADED' in statuses:
+                overall = 'DEGRADED'
             else:
-                overall = "HEALTHY"
+                overall = 'HEALTHY'
             
-            dashboard["overall_health"] = {
-                "status": overall,
-                "signal_summary": {
-                    "latency": dashboard.get("1_latency", {}).get("status", "UNKNOWN"),
-                    "errors": dashboard.get("2_errors", {}).get("status", "UNKNOWN"),
-                    "saturation": dashboard.get("3_saturation", {}).get("status", "UNKNOWN"),
-                    "traffic": dashboard.get("4_traffic", {}).get("status", "UNKNOWN"),
-                },
-                "issues": issues if issues else ["All signals healthy - no issues detected"],
+            # ---- Health score (0-100) ----
+            score = 100
+            if app_status == 'DOWN': score -= 30
+            if db_status == 'DOWN': score -= 25
+            if not latency_sla_met: score -= 10
+            if error_rate > 1: score -= 10
+            if oom_killed: score -= 15
+            if total_restarts > 5: score -= 5
+            if instance_count == 0: score -= 20
+            if log_error_count > 10: score -= 5
+            score = max(0, score)
+            
+            # ---- Build clean, flat, table-friendly response ----
+            return {
+                "title": "SRE Dashboard - Movie Ticket Booking Application",
+                "timestamp": datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC'),
+                "overall_health": overall,
+                "health_score": f"{score}/100",
+                "metrics": [
+                    {
+                        "signal": "Latency",
+                        "status": latency_status,
+                        "metric": "P50 / P90 / P95 / P99",
+                        "current_value": f"{round(p50)} ms / {round(p90)} ms / {round(p95)} ms / {round(p99)} ms",
+                        "target": "95% of requests complete in < 3 seconds",
+                        "sla_met": latency_sla_met,
+                        "sla_compliance": f"{pct_under_3s}% under 3s"
+                    },
+                    {
+                        "signal": "Errors",
+                        "status": error_status,
+                        "metric": "Error Rate",
+                        "current_value": f"{error_rate}% ({total_errors} failed out of {total_sampled} sampled requests)",
+                        "target": "< 1% error rate (SLA: 95% success)",
+                        "sla_met": error_rate <= 1,
+                        "breakdown": f"HTTP 5xx: {http_5xx}, DB errors: {db_errs}, Exceptions: {exceptions}, Log errors (1hr): {log_error_count}"
+                    },
+                    {
+                        "signal": "Errors",
+                        "status": "UP" if app_status == 'UP' and db_status == 'UP' else "DOWN",
+                        "metric": "App & DB Health",
+                        "current_value": f"App: {app_status} ({app_latency_ms} ms), DB: {db_status} ({db_latency_ms} ms)",
+                        "target": "Both UP with < 5s response",
+                        "sla_met": app_status == 'UP' and db_status == 'UP'
+                    },
+                    {
+                        "signal": "Saturation",
+                        "status": saturation_status,
+                        "metric": "CPU / Memory Limits",
+                        "current_value": f"CPU: {cpu_limit}, Memory: {memory_limit}",
+                        "target": "No OOMKills, restarts < 5",
+                        "sla_met": not oom_killed and total_restarts <= 5
+                    },
+                    {
+                        "signal": "Saturation",
+                        "status": saturation_status,
+                        "metric": "Instances & Restarts",
+                        "current_value": f"{instance_count} running (scale: {min_scale}-{max_scale}), Restarts: {total_restarts}, OOMKilled: {'Yes' if oom_killed else 'No'}",
+                        "target": "≥ 1 instance running, 0 OOMKills",
+                        "sla_met": instance_count >= 1 and not oom_killed
+                    },
+                    {
+                        "signal": "Traffic",
+                        "status": traffic_status,
+                        "metric": "Request Volume",
+                        "current_value": f"{request_count} requests in recent logs, {booking_count} booking transactions",
+                        "target": "Non-zero traffic",
+                        "sla_met": request_count > 0
+                    },
+                    {
+                        "signal": "Traffic",
+                        "status": traffic_status,
+                        "metric": "Seat Occupancy",
+                        "current_value": f"{booked_seats}/{total_seats} seats booked ({occupancy_pct}%)",
+                        "target": "Informational",
+                        "sla_met": True
+                    }
+                ],
+                "issues": issues if issues else ["No issues — all signals are healthy"],
                 "recommendation": (
-                    "Immediate attention required - critical signals detected" if overall == "CRITICAL"
-                    else "Some signals degraded - investigate proactively" if overall == "DEGRADED"
+                    "CRITICAL: Immediate attention required" if overall == 'CRITICAL'
+                    else "DEGRADED: Investigate proactively" if overall == 'DEGRADED'
                     else "All systems operating within SLA targets"
-                )
+                ),
+                "endpoint_details": latency.get('endpoints', {})
             }
-            
-            return dashboard
         
         else:
             return {"error": f"Unknown tool: {tool_name}"}

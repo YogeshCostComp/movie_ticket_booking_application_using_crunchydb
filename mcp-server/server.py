@@ -120,7 +120,7 @@ def _send_teams_notification(webhook_url, result):
                                         "width": "stretch",
                                         "items": [
                                             {"type": "TextBlock", "text": "**App Health**", "wrap": True},
-                                            {"type": "TextBlock", "text": f"{'✅' if app_status == 'healthy' else '❌'} {app_status.upper()} ({app_rt} ms)", "wrap": True}
+                                            {"type": "TextBlock", "text": "{} {} ({} ms)".format("✅" if app_status == "healthy" else "❌", app_status.upper(), app_rt), "wrap": True}
                                         ]
                                     },
                                     {
@@ -128,7 +128,7 @@ def _send_teams_notification(webhook_url, result):
                                         "width": "stretch",
                                         "items": [
                                             {"type": "TextBlock", "text": "**Database**", "wrap": True},
-                                            {"type": "TextBlock", "text": f"{'✅' if db_status == 'healthy' else '❌'} {db_status.upper()} ({db_rt} ms)", "wrap": True}
+                                            {"type": "TextBlock", "text": "{} {} ({} ms)".format("✅" if db_status == "healthy" else "❌", db_status.upper(), db_rt), "wrap": True}
                                         ]
                                     }
                                 ]
@@ -197,10 +197,11 @@ def _send_teams_notification(webhook_url, result):
             sample_msgs = []
             for log in error_logs[:5]:  # Show max 5 error samples
                 msg = log.get('message', str(log)) if isinstance(log, dict) else str(log)
-                sample_msgs.append(f"• {msg[:200]}")
+                sample_msgs.append("• {}".format(msg[:200]))
+            samples_text = "\n\n".join(sample_msgs)
             card['attachments'][0]['content']['body'].append({
                 "type": "TextBlock",
-                "text": f"**Error Log Samples:**\n\n{'\n\n'.join(sample_msgs)}",
+                "text": "**Error Log Samples:**\n\n" + samples_text,
                 "wrap": True,
                 "size": "Small"
             })
@@ -685,7 +686,7 @@ def scale_code_engine_app(project_id, app_name, min_scale, max_scale=None):
             "action": "stopped" if min_scale == 0 else "started",
             "min_instances": min_scale,
             "max_instances": max_scale,
-            "message": f"App '{app_name}' {'stopped (scaled to 0)' if min_scale == 0 else f'started (scaled to {min_scale}-{max_scale})'}"
+            "message": "App '{}' {}".format(app_name, "stopped (scaled to 0)" if min_scale == 0 else "started (scaled to {}-{})".format(min_scale, max_scale))
         }
     else:
         return {"status": "error", "message": f"Failed to scale app: {patch_response.text}"}
@@ -2166,7 +2167,7 @@ def execute_mcp_tool(tool_name, args):
                         "signal": "Saturation",
                         "status": saturation_status,
                         "metric": "Instances & Restarts",
-                        "current_value": f"{instance_count} running (scale: {min_scale}-{max_scale}), Restarts: {total_restarts}, OOMKilled: {'Yes' if oom_killed else 'No'}",
+                        "current_value": "{} running (scale: {}-{}), Restarts: {}, OOMKilled: {}".format(instance_count, min_scale, max_scale, total_restarts, "Yes" if oom_killed else "No"),
                         "target": "≥ 1 instance running, 0 OOMKills",
                         "sla_met": instance_count >= 1 and not oom_killed
                     },

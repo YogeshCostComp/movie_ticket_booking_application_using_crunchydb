@@ -7,6 +7,8 @@ import os
 import json
 import logging
 import requests
+import threading
+import time as time_module
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 
@@ -35,6 +37,377 @@ MCP_API_KEY = os.environ.get('MCP_API_KEY', 'sre-mcp-secret-key-2026')
 # Code Engine configuration
 CODE_ENGINE_REGION = os.environ.get('CODE_ENGINE_REGION', 'us-south')
 
+# Microsoft Teams Webhook configuration
+TEAMS_WEBHOOK_URL = os.environ.get('TEAMS_WEBHOOK_URL', 'https://default76a2ae5a9f004f6b95ed5d33d77c4d.61.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/a1f73be7e4194ca7934bf767e8905a8c/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=fvjrbCmYXrlUpjjAcknEExXFrUOhhGdBNYH4QhAaHn8')
+
+# ============== Continuous Monitoring State ==============
+_monitoring_state = {
+    'active': False,
+    'thread': None,
+    'interval_seconds': 120,  # 2 minutes
+    'started_at': None,
+    'last_check_at': None,
+    'check_count': 0,
+    'latest_result': None,
+    'history': [],          # last N check results
+    'max_history': 30,      # keep last 30 checks (~1 hour)
+    'teams_webhook_url': '',  # Microsoft Teams webhook for notifications
+}
+
+
+def _send_teams_notification(webhook_url, result):
+    """Send a monitoring result as a Microsoft Teams Adaptive Card via webhook."""
+    if not webhook_url:
+        return
+
+    try:
+        overall = result.get('overall_status', 'UNKNOWN')
+        timestamp = result.get('timestamp', '')
+        message = result.get('message', '')
+        app_status = result.get('app_health', {}).get('status', 'unknown')
+        db_status = result.get('db_health', {}).get('status', 'unknown')
+        app_rt = result.get('app_health', {}).get('response_time_ms', 'N/A')
+        db_rt = result.get('db_health', {}).get('response_time_ms', 'N/A')
+        error_count = len(result.get('error_logs', []))
+        warning_count = len(result.get('warning_logs', []))
+        issues = result.get('issue_summary', [])
+        recommendation = result.get('recommendation')
+
+        # Color based on status
+        if overall == 'HEALTHY':
+            color = 'Good'     # green
+            status_emoji = '✅'
+        elif overall == 'WARNING':
+            color = 'Warning'  # yellow
+            status_emoji = '⚠️'
+        elif overall in ('ERROR', 'CRITICAL'):
+            color = 'Attention' # red
+            status_emoji = '🚨'
+        else:
+            color = 'Default'
+            status_emoji = 'ℹ️'
+
+        # Build Adaptive Card
+        card = {
+            "type": "message",
+            "attachments": [
+                {
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": {
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "type": "AdaptiveCard",
+                        "version": "1.4",
+                        "body": [
+                            {
+                                "type": "TextBlock",
+                                "size": "Large",
+                                "weight": "Bolder",
+                                "text": f"{status_emoji} SRE Monitor — {overall}",
+                                "wrap": True,
+                                "color": color
+                            },
+                            {
+                                "type": "TextBlock",
+                                "text": f"🕐 {timestamp}",
+                                "isSubtle": True,
+                                "spacing": "None"
+                            },
+                            {
+                                "type": "ColumnSet",
+                                "columns": [
+                                    {
+                                        "type": "Column",
+                                        "width": "stretch",
+                                        "items": [
+                                            {"type": "TextBlock", "text": "**App Health**", "wrap": True},
+                                            {"type": "TextBlock", "text": f"{'✅' if app_status == 'healthy' else '❌'} {app_status.upper()} ({app_rt} ms)", "wrap": True}
+                                        ]
+                                    },
+                                    {
+                                        "type": "Column",
+                                        "width": "stretch",
+                                        "items": [
+                                            {"type": "TextBlock", "text": "**Database**", "wrap": True},
+                                            {"type": "TextBlock", "text": f"{'✅' if db_status == 'healthy' else '❌'} {db_status.upper()} ({db_rt} ms)", "wrap": True}
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "FactSet",
+                                "facts": [
+                                    {"title": "Error Logs", "value": str(error_count)},
+                                    {"title": "Warning Logs", "value": str(warning_count)},
+                                    {"title": "Check #", "value": str(_monitoring_state.get('check_count', 0))}
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        # Add issues section if any
+        if issues:
+            issues_text = '\n\n'.join(f'• {s}' for s in issues)
+            card['attachments'][0]['content']['body'].append({
+                "type": "TextBlock",
+                "text": f"**Issues:**\n\n{issues_text}",
+                "wrap": True,
+                "color": color
+            })
+
+        # Add recommendation if issues found
+        if recommendation == 'restart':
+            card['attachments'][0]['content']['body'].append({
+                "type": "TextBlock",
+                "text": "🔧 **Recommendation:** Please check the SRE Agent in IBM watsonx Orchestrate and consider restarting the application.",
+                "wrap": True,
+                "weight": "Bolder",
+                "color": "Attention"
+            })
+            card['attachments'][0]['content']['body'].append({
+                "type": "ActionSet",
+                "actions": [{
+                    "type": "Action.OpenUrl",
+                    "title": "🚀 Open SRE Agent",
+                    "url": "https://au-syd.watson-orchestrate.cloud.ibm.com/build/agent/edit/ced30827-2cfe-42c1-bdd0-c785df7a2793"
+                }]
+            })
+        elif recommendation == 'investigate':
+            card['attachments'][0]['content']['body'].append({
+                "type": "TextBlock",
+                "text": "🔍 **Recommendation:** Check the SRE Agent for details. Investigate warnings before they escalate.",
+                "wrap": True,
+                "weight": "Bolder",
+                "color": "Warning"
+            })
+            card['attachments'][0]['content']['body'].append({
+                "type": "ActionSet",
+                "actions": [{
+                    "type": "Action.OpenUrl",
+                    "title": "🚀 Open SRE Agent",
+                    "url": "https://au-syd.watson-orchestrate.cloud.ibm.com/build/agent/edit/ced30827-2cfe-42c1-bdd0-c785df7a2793"
+                }]
+            })
+
+        # Add error log samples if any
+        error_logs = result.get('error_logs', [])
+        if error_logs:
+            sample_msgs = []
+            for log in error_logs[:5]:  # Show max 5 error samples
+                msg = log.get('message', str(log)) if isinstance(log, dict) else str(log)
+                sample_msgs.append(f"• {msg[:200]}")
+            card['attachments'][0]['content']['body'].append({
+                "type": "TextBlock",
+                "text": f"**Error Log Samples:**\n\n{'\n\n'.join(sample_msgs)}",
+                "wrap": True,
+                "size": "Small"
+            })
+
+        resp = requests.post(webhook_url, json=card, timeout=10)
+        if resp.status_code in (200, 202):
+            logger.info(f"Teams notification sent successfully ({overall})")
+        else:
+            logger.warning(f"Teams webhook returned {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        logger.error(f"Failed to send Teams notification: {e}")
+
+
+def _run_single_health_check():
+    """Perform one health + log check cycle and return the result dict."""
+    check_time = datetime.utcnow()
+    result = {
+        'timestamp': check_time.strftime('%Y-%m-%d %H:%M:%S UTC'),
+        'app_health': None,
+        'db_health': None,
+        'error_logs': [],
+        'warning_logs': [],
+        'issues_found': False,
+        'issue_summary': [],
+        'recommendation': None,
+    }
+
+    # --- App health ---
+    try:
+        resp = requests.get(f"{APP_URL}/health", timeout=10)
+        if resp.status_code == 200:
+            result['app_health'] = {
+                'status': 'healthy',
+                'response_time_ms': round(resp.elapsed.total_seconds() * 1000, 2)
+            }
+        else:
+            result['app_health'] = {'status': 'unhealthy', 'http_code': resp.status_code}
+            result['issues_found'] = True
+            result['issue_summary'].append(f"App returned HTTP {resp.status_code}")
+    except requests.exceptions.Timeout:
+        result['app_health'] = {'status': 'critical', 'error': 'timeout'}
+        result['issues_found'] = True
+        result['issue_summary'].append('App is not responding (timeout)')
+    except Exception as e:
+        result['app_health'] = {'status': 'error', 'error': str(e)}
+        result['issues_found'] = True
+        result['issue_summary'].append(f'App health check failed: {e}')
+
+    # --- DB health ---
+    try:
+        resp = requests.get(f"{APP_URL}/get", timeout=15)
+        if resp.status_code == 200:
+            result['db_health'] = {
+                'status': 'healthy',
+                'response_time_ms': round(resp.elapsed.total_seconds() * 1000, 2)
+            }
+        else:
+            result['db_health'] = {'status': 'unhealthy', 'http_code': resp.status_code}
+            result['issues_found'] = True
+            result['issue_summary'].append(f"Database returned HTTP {resp.status_code}")
+    except Exception as e:
+        result['db_health'] = {'status': 'error', 'error': str(e)}
+        result['issues_found'] = True
+        result['issue_summary'].append(f'Database health check failed: {e}')
+
+    # --- Error / Warning logs (last 3 minutes window to overlap with interval) ---
+    try:
+        start_date = (datetime.utcnow() - timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+
+        error_query = (
+            "source logs "
+            "| filter $d.message.message ~ /error|Error|ERROR|exception|Exception|failed|Failed|CRITICAL|critical|Traceback/ "
+            "| limit 20"
+        )
+        error_logs = query_cloud_logs(error_query, start_date=start_date, end_date=end_date, limit=20)
+        if isinstance(error_logs, list) and error_logs:
+            result['error_logs'] = error_logs
+            result['issues_found'] = True
+            result['issue_summary'].append(f"{len(error_logs)} error log(s) detected in last 3 minutes")
+
+        warning_query = (
+            "source logs "
+            "| filter $d.message.message ~ /warning|Warning|WARNING|warn|WARN/ "
+            "| limit 20"
+        )
+        warning_logs = query_cloud_logs(warning_query, start_date=start_date, end_date=end_date, limit=20)
+        if isinstance(warning_logs, list) and warning_logs:
+            result['warning_logs'] = warning_logs
+            result['issues_found'] = True
+            result['issue_summary'].append(f"{len(warning_logs)} warning log(s) detected in last 3 minutes")
+    except Exception as e:
+        logger.warning(f"Monitoring: log query failed: {e}")
+        result['issue_summary'].append(f'Log query failed: {e}')
+
+    # --- Recommendation ---
+    if not result['issues_found']:
+        result['recommendation'] = None
+        result['overall_status'] = 'HEALTHY'
+        result['message'] = '✅ Everything is healthy. App, database, and logs are all clean.'
+    else:
+        app_down = result['app_health'].get('status') in ('critical', 'error', 'unhealthy')
+        db_down = result['db_health'].get('status') in ('error', 'unhealthy')
+        has_errors = len(result.get('error_logs', [])) > 0
+        has_warnings = len(result.get('warning_logs', [])) > 0
+
+        if app_down or db_down:
+            result['overall_status'] = 'CRITICAL'
+            result['recommendation'] = 'restart'
+            result['message'] = (
+                '🚨 CRITICAL: Issues detected!\n'
+                + '\n'.join(f'  • {s}' for s in result['issue_summary'])
+                + '\n\n⚠️  Would you like to restart the application?'
+            )
+        elif has_errors:
+            result['overall_status'] = 'ERROR'
+            result['recommendation'] = 'restart'
+            result['message'] = (
+                '❌ ERRORS detected in logs!\n'
+                + '\n'.join(f'  • {s}' for s in result['issue_summary'])
+                + '\n\n⚠️  Would you like to restart the application to clear the errors?'
+            )
+        elif has_warnings:
+            result['overall_status'] = 'WARNING'
+            result['recommendation'] = 'investigate'
+            result['message'] = (
+                '⚠️  WARNINGS detected in logs!\n'
+                + '\n'.join(f'  • {s}' for s in result['issue_summary'])
+                + '\n\nYou may want to investigate or restart the application.'
+            )
+        else:
+            result['overall_status'] = 'DEGRADED'
+            result['recommendation'] = 'investigate'
+            result['message'] = (
+                '⚠️  Issues detected:\n'
+                + '\n'.join(f'  • {s}' for s in result['issue_summary'])
+            )
+
+    return result
+
+
+def _monitoring_loop():
+    """Background thread: runs health + log checks every N seconds and notifies Teams."""
+    global _monitoring_state
+    logger.info("Monitoring loop started")
+    while _monitoring_state['active']:
+        try:
+            result = _run_single_health_check()
+            _monitoring_state['last_check_at'] = datetime.utcnow().isoformat()
+            _monitoring_state['check_count'] += 1
+            _monitoring_state['latest_result'] = result
+            _monitoring_state['history'].append(result)
+            # Trim history
+            if len(_monitoring_state['history']) > _monitoring_state['max_history']:
+                _monitoring_state['history'] = _monitoring_state['history'][-_monitoring_state['max_history']:]
+
+            if result.get('issues_found'):
+                logger.warning(f"Monitoring check #{_monitoring_state['check_count']}: Issues found — {result.get('issue_summary')}")
+            else:
+                logger.info(f"Monitoring check #{_monitoring_state['check_count']}: All healthy")
+
+            # Send Teams notification every check cycle
+            webhook_url = _monitoring_state.get('teams_webhook_url', '')
+            if webhook_url:
+                _send_teams_notification(webhook_url, result)
+        except Exception as e:
+            logger.error(f"Monitoring check error: {e}")
+
+        # Sleep in small increments so we can stop quickly
+        for _ in range(_monitoring_state['interval_seconds']):
+            if not _monitoring_state['active']:
+                break
+            time_module.sleep(1)
+
+    # Send a final "monitoring stopped" message to Teams
+    webhook_url = _monitoring_state.get('teams_webhook_url', '')
+    if webhook_url:
+        try:
+            stop_card = {
+                "type": "message",
+                "attachments": [{
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": {
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "type": "AdaptiveCard",
+                        "version": "1.4",
+                        "body": [{
+                            "type": "TextBlock",
+                            "size": "Large",
+                            "weight": "Bolder",
+                            "text": f"🛑 SRE Monitoring Stopped",
+                            "wrap": True
+                        }, {
+                            "type": "TextBlock",
+                            "text": f"Completed {_monitoring_state['check_count']} check(s). Monitoring was active since {_monitoring_state['started_at']}.",
+                            "wrap": True
+                        }]
+                    }
+                }]
+            }
+            requests.post(webhook_url, json=stop_card, timeout=10)
+        except Exception as e:
+            logger.error(f"Failed to send Teams stop notification: {e}")
+
+    logger.info("Monitoring loop stopped")
+
+
 @app.route('/')
 def root():
     """Root endpoint - health check for the MCP server itself"""
@@ -53,7 +426,10 @@ def root():
             '/tools/query_logs',
             '/tools/get_seat_status',
             '/tools/get_bookings',
-            '/tools/get_system_status'
+            '/tools/get_system_status',
+            '/tools/start_monitoring',
+            '/tools/get_monitoring_status',
+            '/tools/stop_monitoring'
         ]
     })
 
@@ -787,6 +1163,120 @@ def get_system_status():
     return jsonify(status)
 
 
+# ============== Continuous Monitoring Endpoints ==============
+
+@app.route('/tools/start_monitoring', methods=['GET', 'POST'])
+def start_monitoring():
+    """Start continuous monitoring - health checks + log checks every 2 minutes with Teams notifications"""
+    global _monitoring_state
+
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        interval = data.get('interval_minutes', 2)
+        teams_webhook = data.get('teams_webhook_url', '') or TEAMS_WEBHOOK_URL
+    else:
+        interval = request.args.get('interval_minutes', 2, type=int)
+        teams_webhook = request.args.get('teams_webhook_url', '') or TEAMS_WEBHOOK_URL
+
+    interval = max(1, min(interval, 30))  # clamp between 1 and 30 minutes
+
+    if _monitoring_state['active']:
+        return jsonify({
+            "status": "already_running",
+            "message": f"Monitoring is already active since {_monitoring_state['started_at']}. "
+                       f"Checks every {_monitoring_state['interval_seconds'] // 60} minute(s). "
+                       f"Total checks so far: {_monitoring_state['check_count']}.",
+            "teams_notifications": bool(_monitoring_state.get('teams_webhook_url')),
+            "latest_result": _monitoring_state.get('latest_result')
+        })
+
+    # Run an immediate first check
+    first_result = _run_single_health_check()
+
+    _monitoring_state['active'] = True
+    _monitoring_state['interval_seconds'] = interval * 60
+    _monitoring_state['started_at'] = datetime.utcnow().isoformat()
+    _monitoring_state['check_count'] = 1
+    _monitoring_state['latest_result'] = first_result
+    _monitoring_state['history'] = [first_result]
+    _monitoring_state['teams_webhook_url'] = teams_webhook
+
+    # Send first check to Teams immediately
+    if teams_webhook:
+        _send_teams_notification(teams_webhook, first_result)
+
+    t = threading.Thread(target=_monitoring_loop, daemon=True, name='sre-monitor')
+    t.start()
+    _monitoring_state['thread'] = t
+
+    teams_msg = f" Teams notifications enabled — messages will be sent every {interval} minute(s)." if teams_webhook else " No Teams webhook configured."
+
+    return jsonify({
+        "status": "started",
+        "message": f"✅ Monitoring started! Running health checks and log scans every {interval} minute(s).{teams_msg}",
+        "interval_minutes": interval,
+        "teams_notifications": bool(teams_webhook),
+        "first_check": first_result
+    })
+
+
+@app.route('/tools/get_monitoring_status', methods=['GET', 'POST'])
+def get_monitoring_status():
+    """Get the latest monitoring status and any detected issues"""
+    global _monitoring_state
+
+    if not _monitoring_state['active']:
+        return jsonify({
+            "status": "inactive",
+            "message": "Monitoring is not active. Use start_monitoring to begin continuous health checks.",
+            "monitoring_active": False
+        })
+
+    include_history = False
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        include_history = data.get('include_history', False)
+    else:
+        include_history = request.args.get('include_history', 'false').lower() == 'true'
+
+    response = {
+        "status": "active",
+        "monitoring_active": True,
+        "started_at": _monitoring_state['started_at'],
+        "interval_minutes": _monitoring_state['interval_seconds'] // 60,
+        "total_checks": _monitoring_state['check_count'],
+        "last_check_at": _monitoring_state['last_check_at'],
+        "latest_result": _monitoring_state.get('latest_result'),
+    }
+
+    if include_history:
+        response['history'] = _monitoring_state.get('history', [])
+
+    return jsonify(response)
+
+
+@app.route('/tools/stop_monitoring', methods=['GET', 'POST'])
+def stop_monitoring():
+    """Stop continuous monitoring"""
+    global _monitoring_state
+
+    if not _monitoring_state['active']:
+        return jsonify({
+            "status": "not_running",
+            "message": "Monitoring is not currently active."
+        })
+
+    _monitoring_state['active'] = False
+    checks_done = _monitoring_state['check_count']
+    started = _monitoring_state['started_at']
+
+    return jsonify({
+        "status": "stopped",
+        "message": f"🛑 Monitoring stopped. Was running since {started}, completed {checks_done} check(s).",
+        "total_checks_completed": checks_done
+    })
+
+
 # ============== MCP Protocol Support ==============
 # MCP uses JSON-RPC 2.0 over HTTP/SSE
 
@@ -1018,6 +1508,49 @@ MCP_TOOLS = [
     {
         "name": "get_sre_dashboard",
         "description": "Get a comprehensive SRE dashboard based on Google's 4 Golden Signals. Returns a clean table of metrics with current values, SLA targets (95%), and pass/fail status. Signals: Latency (P50/P90/P95/P99), Errors (error rate, HTTP 5xx, DB errors), Saturation (CPU, memory, instances, OOMKills), Traffic (request volume, seat occupancy). Includes a health score out of 100 and actionable recommendations. Present the metrics array as a table.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "start_monitoring",
+        "description": "Start continuous monitoring of the Movie Ticket App. Runs automated health checks (app health, database health) and log scans (errors, warnings) every N minutes (default: 2 minutes). Sends a Microsoft Teams message every cycle with health status. When issues are detected (errors/warnings in logs, app down, DB issues), sends an alert to Teams with error details and recommends the user to check the SRE Agent and restart the app. Returns the first check result immediately.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "interval_minutes": {
+                    "type": "integer",
+                    "description": "How often to run checks in minutes (default: 2, min: 1, max: 30)",
+                    "default": 2
+                },
+                "teams_webhook_url": {
+                    "type": "string",
+                    "description": "Microsoft Teams incoming webhook URL for sending monitoring notifications. If not provided, uses the TEAMS_WEBHOOK_URL environment variable."
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_monitoring_status",
+        "description": "Get the latest result from continuous monitoring. Returns current health status, any detected errors/warnings from logs, and whether a restart is recommended. If issues are found, display them to the user and ask if they want to restart. Call this periodically while monitoring is active.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "include_history": {
+                    "type": "boolean",
+                    "description": "Include full history of past checks",
+                    "default": False
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "stop_monitoring",
+        "description": "Stop continuous monitoring of the Movie Ticket App.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -1663,6 +2196,88 @@ def execute_mcp_tool(tool_name, args):
                 "endpoint_details": latency.get('endpoints', {})
             }
         
+        elif tool_name == 'start_monitoring':
+            interval = args.get('interval_minutes', 2)
+            interval = max(1, min(interval, 30))
+            teams_webhook = args.get('teams_webhook_url', '') or TEAMS_WEBHOOK_URL
+
+            if _monitoring_state['active']:
+                return {
+                    "status": "already_running",
+                    "message": f"Monitoring is already active since {_monitoring_state['started_at']}. "
+                               f"Checks run every {_monitoring_state['interval_seconds'] // 60} minute(s). "
+                               f"Total checks so far: {_monitoring_state['check_count']}.",
+                    "teams_notifications": bool(_monitoring_state.get('teams_webhook_url')),
+                    "latest_result": _monitoring_state.get('latest_result')
+                }
+
+            # Run immediate first check
+            first_result = _run_single_health_check()
+
+            _monitoring_state['active'] = True
+            _monitoring_state['interval_seconds'] = interval * 60
+            _monitoring_state['started_at'] = datetime.utcnow().isoformat()
+            _monitoring_state['check_count'] = 1
+            _monitoring_state['latest_result'] = first_result
+            _monitoring_state['history'] = [first_result]
+            _monitoring_state['teams_webhook_url'] = teams_webhook
+
+            # Send first check to Teams immediately
+            if teams_webhook:
+                _send_teams_notification(teams_webhook, first_result)
+
+            t = threading.Thread(target=_monitoring_loop, daemon=True, name='sre-monitor')
+            t.start()
+            _monitoring_state['thread'] = t
+
+            teams_msg = f" Teams notifications enabled — messages will be sent every {interval} minute(s)." if teams_webhook else " No Teams webhook configured."
+
+            return {
+                "status": "started",
+                "message": f"✅ Monitoring started! Running health checks and log scans every {interval} minute(s).{teams_msg}",
+                "interval_minutes": interval,
+                "teams_notifications": bool(teams_webhook),
+                "first_check": first_result
+            }
+
+        elif tool_name == 'get_monitoring_status':
+            if not _monitoring_state['active']:
+                return {
+                    "status": "inactive",
+                    "monitoring_active": False,
+                    "message": "Monitoring is not active. Use start_monitoring to begin continuous health checks."
+                }
+
+            include_history = args.get('include_history', False)
+            response_data = {
+                "status": "active",
+                "monitoring_active": True,
+                "started_at": _monitoring_state['started_at'],
+                "interval_minutes": _monitoring_state['interval_seconds'] // 60,
+                "total_checks": _monitoring_state['check_count'],
+                "last_check_at": _monitoring_state['last_check_at'],
+                "latest_result": _monitoring_state.get('latest_result'),
+            }
+            if include_history:
+                response_data['history'] = _monitoring_state.get('history', [])
+            return response_data
+
+        elif tool_name == 'stop_monitoring':
+            if not _monitoring_state['active']:
+                return {
+                    "status": "not_running",
+                    "message": "Monitoring is not currently active."
+                }
+
+            _monitoring_state['active'] = False
+            checks_done = _monitoring_state['check_count']
+            started = _monitoring_state['started_at']
+            return {
+                "status": "stopped",
+                "message": f"🛑 Monitoring stopped. Was running since {started}, completed {checks_done} check(s).",
+                "total_checks_completed": checks_done
+            }
+
         else:
             return {"error": f"Unknown tool: {tool_name}"}
             

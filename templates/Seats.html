@@ -1,104 +1,191 @@
 <!DOCTYPE html>
 <html lang="en">
-​<style>
-
-    .button {
-  border-radius: 4px;
-  background-color: #f4511e;
-  border: none;
-  color: #FFFFFF;
-  text-align: center;
-  font-size: 28px;
-  padding: 20px;
-  width: 100%;
-  transition: all 0.5s;
-  cursor: pointer;
-  margin: 5px;
-}
-
-.button span {
-  cursor: pointer;
-  display: inline-block;
-  position: relative;
-  transition: 0.5s;
-}
-
-.button span:after {
-  content: '\00bb';
-  position: absolute;
-  opacity: 0;
-  top: 0;
-  right: -20px;
-  transition: 0.5s;
-}
-
-.button:hover span {
-  padding-right: 25px;
-}
-
-.button:hover span:after {
-  opacity: 1;
-  right: 0;
-}
-
-
-</style>
 <head>
-    <title>Movie Bookings</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
-</head>
-​
-<body onload="getUsers()">
-
-​
-    <div class="container">
-        <h2>Mini Screen 1 Booking Details</h2>
-        <p id="loadingmsg">Display all the bookings</p>
-        <table class="table" id="myTable">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Name</th>
-                    <th>Phone Number</th>
-                    <th>Seats Booked</th>
-                </tr>
-            </thead>
-            <tbody>
-            </tbody>
-        </table>
-        <button class="button" onclick="location.replace('/');">Reserve More Tickets</button>
-    </div>
-​
-</body>
-
-    <script>
-    async function getUsers() {
-        const table = document.getElementById("myTable");
-        const tableRef = table.getElementsByTagName('tbody')[0];
-        const loadingmsg = document.getElementById("loadingmsg");
-        loadingmsg.innerHTML = "loading please wait ...";
-        await fetch('/getUsersDetails').then(async(response) => {
-            data = await response.json();
-            var inx = 1;
-            data.forEach(element => {
-                var row = tableRef.insertRow();
-                var cell1 = row.insertCell(0);
-                var cell2 = row.insertCell(1);
-                var cell3 = row.insertCell(2);
-                var cell4 = row.insertCell(3);
-                cell1.innerHTML = inx;
-                cell2.innerHTML = element.name;
-                cell3.innerHTML = element.phone_no;
-                cell4.innerHTML = element.seats;
-                inx = inx + 1;
-            });
-            loadingmsg.innerHTML = "All the bookings";
-        });
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎬 CineBook — Booking Confirmation</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-primary: #0f0f1a;
+      --bg-secondary: #1a1a2e;
+      --bg-card: #16213e;
+      --accent: #e94560;
+      --accent-hover: #ff6b81;
+      --success: #00b894;
+      --text-primary: #ffffff;
+      --text-secondary: #a0a0b8;
+      --border: #2a2a4a;
+      --radius: 12px;
     }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      padding: 20px 0; border-bottom: 1px solid var(--border);
+    }
+    .header-inner {
+      max-width: 900px; margin: 0 auto; padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .logo { display: flex; align-items: center; gap: 12px; }
+    .logo-icon { font-size: 32px; }
+    .logo h1 {
+      font-family: 'Poppins', sans-serif; font-size: 24px; font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    /* Container */
+    .container {
+      max-width: 900px; margin: 0 auto; padding: 32px 24px;
+    }
+
+    /* Success Banner */
+    .success-banner {
+      background: linear-gradient(135deg, rgba(0,184,148,0.1), rgba(0,184,148,0.05));
+      border: 1px solid rgba(0,184,148,0.3); border-radius: var(--radius);
+      padding: 24px; text-align: center; margin-bottom: 32px;
+    }
+    .success-banner .icon { font-size: 48px; margin-bottom: 8px; }
+    .success-banner h2 {
+      font-family: 'Poppins', sans-serif; font-size: 22px; color: var(--success);
+      margin-bottom: 4px;
+    }
+    .success-banner p { color: var(--text-secondary); font-size: 14px; }
+
+    /* Table Card */
+    .table-card {
+      background: var(--bg-card); border-radius: var(--radius);
+      border: 1px solid var(--border); overflow: hidden; margin-bottom: 24px;
+    }
+    .table-card-header {
+      padding: 20px 24px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .table-card-header h3 {
+      font-family: 'Poppins', sans-serif; font-size: 18px;
+    }
+    .badge {
+      background: rgba(233,69,96,0.15); color: var(--accent);
+      padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600;
+    }
+    .booking-table { width: 100%; border-collapse: collapse; }
+    .booking-table th {
+      background: rgba(233,69,96,0.08); color: var(--accent);
+      padding: 14px 20px; text-align: left; font-weight: 600;
+      font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+    }
+    .booking-table td {
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
+      color: var(--text-primary); font-size: 14px;
+    }
+    .booking-table tr:last-child td { border-bottom: none; }
+    .booking-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .seat-chip {
+      display: inline-block; background: rgba(0,184,148,0.12);
+      color: var(--success); padding: 3px 8px; border-radius: 4px;
+      font-size: 12px; font-weight: 600; margin: 2px;
+    }
+    .no-bookings { text-align: center; padding: 40px; color: var(--text-secondary); }
+    .no-bookings .icon { font-size: 48px; margin-bottom: 12px; }
+    #loadingmsg { color: var(--text-secondary); font-size: 14px; margin-bottom: 16px; }
+
+    /* Buttons */
+    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn {
+      padding: 14px 28px; border-radius: 8px; border: none;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      font-family: 'Inter', sans-serif; transition: all 0.3s ease;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #c0392b);
+      color: white;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(233,69,96,0.3); }
+    .btn-secondary {
+      background: rgba(0,184,148,0.12); color: var(--success);
+      border: 1px solid rgba(0,184,148,0.3);
+    }
+    .btn-secondary:hover { background: rgba(0,184,148,0.25); transform: translateY(-1px); }
+  </style>
+</head>
+<body>
+
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">🎬</span>
+        <h1>CineBook</h1>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="success-banner">
+      <div class="icon">🎉</div>
+      <h2>Booking Confirmed!</h2>
+      <p>Your tickets have been reserved successfully</p>
+    </div>
+
+    <div class="table-card">
+      <div class="table-card-header">
+        <h3>📋 All Bookings</h3>
+        <span class="badge" id="booking-count">Loading...</span>
+      </div>
+      <div id="table-body">
+        <div class="no-bookings">
+          <div class="icon">🔄</div>
+          <p id="loadingmsg">Loading bookings...</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="location.replace('/');">🎬 Reserve More Tickets</button>
+      <button class="btn btn-secondary" onclick="location.reload();">🔄 Refresh</button>
+    </div>
+  </div>
+
+<script>
+async function getUsers() {
+  try {
+    const response = await fetch('/getUsersDetails');
+    const data = await response.json();
+
+    document.getElementById('booking-count').textContent = data.length + ' booking' + (data.length !== 1 ? 's' : '');
+
+    if (!data || data.length === 0) {
+      document.getElementById('table-body').innerHTML =
+        '<div class="no-bookings"><div class="icon">🎫</div><p>No bookings yet</p></div>';
+      return;
+    }
+
+    var html = '<table class="booking-table"><thead><tr><th>#</th><th>Name</th><th>Phone</th><th>Seats</th></tr></thead><tbody>';
+    data.forEach(function(b, i) {
+      var seatChips = b.seats.split(',').map(function(s) {
+        return '<span class="seat-chip">' + s.trim() + '</span>';
+      }).join(' ');
+      html += '<tr><td>' + (i+1) + '</td><td>' + b.name + '</td><td>' + b.phone_no + '</td><td>' + seatChips + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('table-body').innerHTML = html;
+  } catch(e) {
+    document.getElementById('table-body').innerHTML =
+      '<div class="no-bookings"><div class="icon">❌</div><p>Failed to load bookings</p></div>';
+  }
+}
+
+window.onload = getUsers;
 </script>
-​
+</body>
 </html>

@@ -1,759 +1,707 @@
 <!DOCTYPE html>
-<html>
-<style>
-  body {
-  margin: 60px;
-  background: #111;
-}
-*, *:before, *:after {
-  box-sizing: border-box;
-}
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎬 CineBook — Movie Ticket Booking</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-primary: #0f0f1a;
+      --bg-secondary: #1a1a2e;
+      --bg-card: #16213e;
+      --accent: #e94560;
+      --accent-hover: #ff6b81;
+      --success: #00b894;
+      --warning: #fdcb6e;
+      --text-primary: #ffffff;
+      --text-secondary: #a0a0b8;
+      --border: #2a2a4a;
+      --seat-available: #e94560;
+      --seat-selected: #00b894;
+      --seat-blocked: #4a4a6a;
+      --shadow: 0 8px 32px rgba(0,0,0,0.4);
+      --radius: 12px;
+    }
+    html { font-size: 16px; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
 
-html {
-  font-size: 16px;
-}
+    /* ===== Header ===== */
+    .header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      padding: 20px 0;
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+      backdrop-filter: blur(10px);
+    }
+    .header-inner {
+      max-width: 1200px; margin: 0 auto; padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .logo { display: flex; align-items: center; gap: 12px; }
+    .logo-icon { font-size: 32px; }
+    .logo h1 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 24px; font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .header-actions { display: flex; gap: 10px; }
+    .btn-header {
+      padding: 10px 20px; border-radius: 8px; border: none;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: all 0.3s ease; font-family: 'Inter', sans-serif;
+    }
+    .btn-view-bookings {
+      background: rgba(0,184,148,0.15); color: var(--success);
+      border: 1px solid rgba(0,184,148,0.3);
+    }
+    .btn-view-bookings:hover { background: rgba(0,184,148,0.3); transform: translateY(-1px); }
+    .btn-reset {
+      background: rgba(233,69,96,0.15); color: var(--accent);
+      border: 1px solid rgba(233,69,96,0.3);
+    }
+    .btn-reset:hover { background: rgba(233,69,96,0.3); transform: translateY(-1px); }
 
-.theatre {
-  margin: 20px auto;
-  max-width: 30%;
-}
-.screen {
-  height: 250px;
-  position: relative;
-  overflow: hidden;
-  text-align: center;
-  border-bottom: 5px solid #d8d8d8;
-}
-.screen h1 {
-  color:white;
-  width: 60%;
-  margin: 100px auto 35px auto;
-}
+    /* ===== Main Layout ===== */
+    .main-container {
+      max-width: 1200px; margin: 0 auto; padding: 32px 24px;
+      display: grid; grid-template-columns: 1fr 380px; gap: 32px;
+    }
 
-.exit {
-  position: relative;
-  height: 50px;
-}
-.exit:before, .exit:after {
-  content: "EXIT";
-  font-size: 14px;
-  line-height: 18px;
-  padding: 0px 2px;
-  font-family: "Arial Narrow", Arial, sans-serif;
-  display: block;
-  position: absolute;
-  background: green;
-  color: white;
-  top: 50%;
-  transform: translate(0, -50%);
-}
-.exit:before {
-  left: 0;
-}
-.exit:after {
-  right: 0;
-}
+    /* ===== Movie Info ===== */
+    .movie-info {
+      background: var(--bg-card); border-radius: var(--radius);
+      padding: 24px; margin-bottom: 24px; border: 1px solid var(--border);
+    }
+    .movie-info h2 {
+      font-family: 'Poppins', sans-serif; font-size: 22px; font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .movie-meta { display: flex; gap: 16px; flex-wrap: wrap; }
+    .movie-meta span {
+      font-size: 13px; color: var(--text-secondary);
+      display: flex; align-items: center; gap: 4px;
+    }
 
-.fuselage {
-  border-right: 5px solid #d8d8d8;
-  border-left: 5px solid #d8d8d8;
-}
+    /* ===== Screen ===== */
+    .screen-area { text-align: center; margin-bottom: 24px; }
+    .screen-label {
+      font-size: 12px; text-transform: uppercase; letter-spacing: 3px;
+      color: var(--text-secondary); margin-bottom: 8px;
+    }
+    .screen-display {
+      width: 80%; max-width: 500px; height: 8px; margin: 0 auto;
+      background: linear-gradient(180deg, rgba(233,69,96,0.6), transparent);
+      border-radius: 50% 50% 0 0; border-top: 3px solid var(--accent);
+    }
 
-ol {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
+    /* ===== Legend ===== */
+    .legend {
+      display: flex; justify-content: center; gap: 24px; margin: 20px 0;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+    .legend-dot { width: 16px; height: 16px; border-radius: 4px; }
+    .legend-dot.available { background: var(--seat-available); }
+    .legend-dot.selected { background: var(--seat-selected); }
+    .legend-dot.blocked { background: var(--seat-blocked); }
 
-.seats {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  justify-content: flex-start;
-}
+    /* ===== Seat Grid ===== */
+    .seating-area {
+      background: var(--bg-card); border-radius: var(--radius);
+      padding: 24px; border: 1px solid var(--border);
+    }
+    .seat-row {
+      display: flex; justify-content: center; align-items: center;
+      margin-bottom: 6px; gap: 0;
+    }
+    .row-label {
+      width: 28px; font-size: 13px; font-weight: 600;
+      color: var(--text-secondary); text-align: center; flex-shrink: 0;
+    }
+    .seat-group { display: flex; gap: 6px; }
+    .seat-group.left { margin-right: 20px; }
+    .seat-group.right { margin-left: 20px; }
+    .seat { position: relative; width: 38px; height: 34px; }
+    .seat input[type="checkbox"] {
+      position: absolute; opacity: 0; width: 100%; height: 100%;
+      cursor: pointer; z-index: 2;
+    }
+    .seat label {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; height: 100%;
+      background: var(--seat-available);
+      border-radius: 6px 6px 2px 2px;
+      font-size: 10px; font-weight: 600; color: white;
+      cursor: pointer; transition: all 0.2s ease;
+      position: relative;
+    }
+    .seat label::after {
+      content: ''; position: absolute; bottom: -3px;
+      left: 3px; right: 3px; height: 3px;
+      background: inherit; border-radius: 0 0 3px 3px;
+      filter: brightness(0.7);
+    }
+    .seat input:checked + label {
+      background: var(--seat-selected);
+      transform: scale(1.08);
+      box-shadow: 0 0 12px rgba(0,184,148,0.5);
+    }
+    .seat input:disabled + label {
+      background: var(--seat-blocked);
+      cursor: not-allowed; opacity: 0.6;
+    }
+    .seat label:hover { filter: brightness(1.2); }
+    .seat input:disabled + label:hover { filter: none; }
 
-.seat {
-  display: flex;
-  flex: 0 0 14.28571428571429%;
-  padding: 5px;
-  position: relative;
-}
-.seat:nth-child(3) {
-  margin-right: 14.28571428571429%;
-}
-.seat input[type=checkbox] {
-  position: absolute;
-  opacity: 0;
-}
-.seat input[type=checkbox]:checked + label {
-  background: #bada55;
-  -webkit-animation-name: rubberBand;
-  animation-name: rubberBand;
-  animation-duration: 300ms;
-  animation-fill-mode: both;
-}
-.seat input[type=checkbox]:disabled + label {
-  background: #dddddd;
-  text-indent: -9999px;
-  overflow: hidden;
-}
-.seat input[type=checkbox]:disabled + label:after {
-  content: "X";
-  text-indent: 0;
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  transform: translate(-50%, 0%);
-}
-.seat input[type=checkbox]:disabled + label:hover {
-  box-shadow: none;
-  cursor: not-allowed;
-}
-.seat label {
-  display: block;
-  position: relative;
-  width: 100%;
-  text-align: center;
-  font-size: 14px;
-  font-weight: bold;
-  line-height: 1.5rem;
-  padding: 4px 0;
-  background: #F42536;
-  border-radius: 5px;
-  animation-duration: 300ms;
-  animation-fill-mode: both;
-}
-.seat label:before {
-  content: "";
-  position: absolute;
-  width: 75%;
-  height: 75%;
-  top: 1px;
-  left: 50%;
-  transform: translate(-50%, 0%);
-  background: rgba(255, 255, 255, 0.4);
-  border-radius: 3px;
-}
-.seat label:hover {
-  cursor: pointer;
-  box-shadow: 0 0 0px 2px #5C6AFF;
-}
+    /* ===== Right Panel ===== */
+    .booking-panel { position: sticky; top: 100px; height: fit-content; }
+    .panel-card {
+      background: var(--bg-card); border-radius: var(--radius);
+      padding: 28px; border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    .panel-card h3 {
+      font-family: 'Poppins', sans-serif; font-size: 18px;
+      margin-bottom: 20px; color: var(--text-primary);
+    }
+    .stats-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      margin-bottom: 24px;
+    }
+    .stat-box {
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px; text-align: center;
+    }
+    .stat-value { font-size: 24px; font-weight: 700; font-family: 'Poppins', sans-serif; }
+    .stat-value.available { color: var(--accent); }
+    .stat-value.booked-val { color: var(--seat-blocked); }
+    .stat-value.selected { color: var(--success); }
+    .stat-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
 
-.button {
-  border-radius: 4px;
-  background-color: #f4511e;
-  border: none;
-  color: #FFFFFF;
-  text-align: center;
-  font-size: 28px;
-  padding: 20px;
-  width: 100%;
-  transition: all 0.5s;
-  cursor: pointer;
-  margin: 5px;
-}
+    /* ===== Form ===== */
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block; font-size: 13px; font-weight: 500;
+      color: var(--text-secondary); margin-bottom: 6px;
+    }
+    .form-input {
+      width: 100%; padding: 12px 16px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg-secondary);
+      color: var(--text-primary); font-size: 14px;
+      font-family: 'Inter', sans-serif; transition: border 0.3s ease;
+      outline: none;
+    }
+    .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(233,69,96,0.15); }
+    .form-input::placeholder { color: var(--text-secondary); opacity: 0.6; }
 
-.button span {
-  cursor: pointer;
-  display: inline-block;
-  position: relative;
-  transition: 0.5s;
-}
+    .btn-reserve {
+      width: 100%; padding: 14px; border: none; border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent), #c0392b);
+      color: white; font-size: 16px; font-weight: 700;
+      font-family: 'Poppins', sans-serif; cursor: pointer;
+      transition: all 0.3s ease; letter-spacing: 0.5px; margin-top: 8px;
+    }
+    .btn-reserve:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(233,69,96,0.4); }
+    .btn-reserve:active { transform: translateY(0); }
+    .btn-reserve:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
-.button span:after {
-  content: '\00bb';
-  position: absolute;
-  opacity: 0;
-  top: 0;
-  right: -20px;
-  transition: 0.5s;
-}
+    .selected-seats {
+      background: rgba(0,184,148,0.08); border: 1px solid rgba(0,184,148,0.2);
+      border-radius: 8px; padding: 12px; margin-bottom: 16px; min-height: 42px;
+    }
+    .selected-seats-label {
+      font-size: 12px; color: var(--text-secondary); text-transform: uppercase;
+      letter-spacing: 1px; margin-bottom: 6px;
+    }
+    .selected-seats-list { font-size: 14px; font-weight: 600; color: var(--success); }
 
-.button:hover span {
-  padding-right: 25px;
-}
+    /* ===== Modal ===== */
+    .modal-overlay {
+      display: none; position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%; background: rgba(0,0,0,0.7);
+      z-index: 1000; align-items: center; justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: var(--bg-card); border-radius: 16px;
+      padding: 32px; width: 90%; max-width: 700px; max-height: 80vh;
+      overflow-y: auto; border: 1px solid var(--border);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+      animation: modalSlideIn 0.3s ease;
+    }
+    @keyframes modalSlideIn {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border);
+    }
+    .modal-header h2 { font-family: 'Poppins', sans-serif; font-size: 20px; }
+    .modal-close {
+      width: 36px; height: 36px; border-radius: 8px; border: none;
+      background: rgba(255,255,255,0.05); color: var(--text-secondary);
+      font-size: 20px; cursor: pointer; transition: all 0.2s;
+    }
+    .modal-close:hover { background: rgba(233,69,96,0.2); color: var(--accent); }
+    .booking-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .booking-table th {
+      background: rgba(233,69,96,0.1); color: var(--accent);
+      padding: 12px 16px; text-align: left; font-weight: 600;
+      font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+    }
+    .booking-table td {
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      color: var(--text-primary);
+    }
+    .booking-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .no-bookings { text-align: center; padding: 40px 20px; color: var(--text-secondary); }
+    .no-bookings-icon { font-size: 48px; margin-bottom: 12px; }
 
-.button:hover span:after {
-  opacity: 1;
-  right: 0;
-}
+    /* ===== Toast ===== */
+    .toast {
+      position: fixed; top: 24px; right: 24px; padding: 16px 24px;
+      border-radius: 12px; font-size: 14px; font-weight: 500;
+      z-index: 9999; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      display: flex; align-items: center; gap: 10px;
+      transform: translateX(120%); transition: transform 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+      max-width: 400px;
+    }
+    .toast.show { transform: translateX(0); }
+    .toast.success { background: linear-gradient(135deg, #00b894, #00a381); color: white; }
+    .toast.error { background: linear-gradient(135deg, #e94560, #c0392b); color: white; }
+    .toast.warning { background: linear-gradient(135deg, #f39c12, #e67e22); color: white; }
 
-.label {
-  color: white;
-  padding: 8px;
-  font-family: Arial;
-}
-.success {background-color: #4CAF50;} 
-.danger {background-color: #f44336;}
-.other {background-color: #ffffff; color: black;} 
+    /* ===== SRE Panel ===== */
+    .sre-panel {
+      background: var(--bg-card); border-radius: var(--radius);
+      padding: 20px; border: 1px solid var(--border); margin-top: 16px;
+    }
+    .sre-panel h4 {
+      font-size: 14px; color: var(--accent); margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .sre-select {
+      width: 100%; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg-secondary);
+      color: var(--text-primary); font-size: 13px; margin-bottom: 10px;
+      font-family: 'Inter', sans-serif; outline: none;
+    }
+    .btn-sre {
+      width: 100%; padding: 10px; border-radius: 8px; border: none;
+      background: rgba(233,69,96,0.15); color: var(--accent);
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      font-family: 'Inter', sans-serif; transition: all 0.2s;
+    }
+    .btn-sre:hover { background: rgba(233,69,96,0.3); }
+    .sre-result {
+      margin-top: 10px; font-size: 13px; border-radius: 8px;
+      padding: 10px; display: none;
+    }
 
-@-webkit-keyframes rubberBand {
-  0% {
-    -webkit-transform: scale3d(1, 1, 1);
-    transform: scale3d(1, 1, 1);
-  }
-  30% {
-    -webkit-transform: scale3d(1.25, 0.75, 1);
-    transform: scale3d(1.25, 0.75, 1);
-  }
-  40% {
-    -webkit-transform: scale3d(0.75, 1.25, 1);
-    transform: scale3d(0.75, 1.25, 1);
-  }
-  50% {
-    -webkit-transform: scale3d(1.15, 0.85, 1);
-    transform: scale3d(1.15, 0.85, 1);
-  }
-  65% {
-    -webkit-transform: scale3d(0.95, 1.05, 1);
-    transform: scale3d(0.95, 1.05, 1);
-  }
-  75% {
-    -webkit-transform: scale3d(1.05, 0.95, 1);
-    transform: scale3d(1.05, 0.95, 1);
-  }
-  100% {
-    -webkit-transform: scale3d(1, 1, 1);
-    transform: scale3d(1, 1, 1);
-  }
-}
-@keyframes rubberBand {
-  0% {
-    -webkit-transform: scale3d(1, 1, 1);
-    transform: scale3d(1, 1, 1);
-  }
-  30% {
-    -webkit-transform: scale3d(1.25, 0.75, 1);
-    transform: scale3d(1.25, 0.75, 1);
-  }
-  40% {
-    -webkit-transform: scale3d(0.75, 1.25, 1);
-    transform: scale3d(0.75, 1.25, 1);
-  }
-  50% {
-    -webkit-transform: scale3d(1.15, 0.85, 1);
-    transform: scale3d(1.15, 0.85, 1);
-  }
-  65% {
-    -webkit-transform: scale3d(0.95, 1.05, 1);
-    transform: scale3d(0.95, 1.05, 1);
-  }
-  75% {
-    -webkit-transform: scale3d(1.05, 0.95, 1);
-    transform: scale3d(1.05, 0.95, 1);
-  }
-  100% {
-    -webkit-transform: scale3d(1, 1, 1);
-    transform: scale3d(1, 1, 1);
-  }
-}
-.rubberBand {
-  -webkit-animation-name: rubberBand;
-  animation-name: rubberBand;
-}
-</style>
+    /* ===== Confirm Modal ===== */
+    .confirm-overlay {
+      display: none; position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%; background: rgba(0,0,0,0.7);
+      z-index: 2000; align-items: center; justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .confirm-overlay.active { display: flex; }
+    .confirm-box {
+      background: var(--bg-card); border-radius: 16px; padding: 32px;
+      width: 90%; max-width: 420px; text-align: center;
+      border: 1px solid var(--border); box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+    }
+    .confirm-box h3 { font-family: 'Poppins', sans-serif; margin-bottom: 12px; }
+    .confirm-box p { color: var(--text-secondary); font-size: 14px; margin-bottom: 24px; }
+    .confirm-actions { display: flex; gap: 12px; justify-content: center; }
+    .btn-confirm-yes {
+      padding: 10px 28px; border-radius: 8px; border: none;
+      background: var(--accent); color: white;
+      font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;
+    }
+    .btn-confirm-no {
+      padding: 10px 28px; border-radius: 8px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--text-secondary); font-weight: 600; cursor: pointer;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 900px) {
+      .main-container { grid-template-columns: 1fr; }
+      .booking-panel { position: relative; top: 0; }
+      .header-inner { flex-direction: column; gap: 12px; }
+      .header-actions { width: 100%; justify-content: center; }
+    }
+    @media (max-width: 600px) {
+      .seat { width: 30px; height: 28px; }
+      .seat label { font-size: 8px; }
+      .seat-group { gap: 4px; }
+      .seat-group.left { margin-right: 12px; }
+      .seat-group.right { margin-left: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">🎬</span>
+        <h1>CineBook</h1>
+      </div>
+      <div class="header-actions">
+        <button class="btn-header btn-view-bookings" onclick="openBookingsModal()">📋 View Bookings</button>
+        <button class="btn-header btn-reset" onclick="confirmReset()">🔄 Reset Bookings</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <div class="main-container">
+    <!-- Left: Seat Selection -->
+    <div class="left-panel">
+      <div class="movie-info">
+        <h2>🎥 Mini Screen 1</h2>
+        <div class="movie-meta">
+          <span>🕐 Show: 7:00 PM</span>
+          <span>📅 Today</span>
+          <span>💺 60 Seats</span>
+        </div>
+      </div>
+
+      <div class="seating-area">
+        <div class="screen-area">
+          <div class="screen-label">Screen</div>
+          <div class="screen-display"></div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot available"></div> Available</div>
+          <div class="legend-item"><div class="legend-dot selected"></div> Selected</div>
+          <div class="legend-item"><div class="legend-dot blocked"></div> Booked</div>
+        </div>
+
+        <div id="seat-grid"></div>
+      </div>
+    </div>
+
+    <!-- Right: Booking Panel -->
+    <div class="booking-panel">
+      <div class="panel-card">
+        <h3>🎫 Book Your Seats</h3>
+        <div class="stats-row">
+          <div class="stat-box">
+            <div class="stat-value available" id="stat-available">60</div>
+            <div class="stat-label">Available</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value selected" id="stat-selected">0</div>
+            <div class="stat-label">Selected</div>
+          </div>
+        </div>
+
+        <div class="selected-seats">
+          <div class="selected-seats-label">Selected Seats</div>
+          <div class="selected-seats-list" id="selected-list">None</div>
+        </div>
+
+        <div class="form-group">
+          <label for="name">Full Name</label>
+          <input type="text" id="name" class="form-input" placeholder="Enter your name" required>
+        </div>
+        <div class="form-group">
+          <label for="phone">Phone Number</label>
+          <input type="number" id="phone" class="form-input" placeholder="Enter phone number" required>
+        </div>
+
+        <button class="btn-reserve" id="btn-reserve" onclick="reserve_seats()">
+          🎬 Reserve Seats
+        </button>
+      </div>
+
+      <!-- SRE Panel -->
+      <div class="sre-panel">
+        <h4>🛠️ SRE Error Simulator</h4>
+        <select id="errorType" class="sre-select">
+          <option value="all">🔥 All Errors</option>
+          <option value="500">500 — Internal Server Error</option>
+          <option value="404">404 — Not Found</option>
+          <option value="503">503 — Service Unavailable</option>
+          <option value="db_error">Database Connection Error</option>
+          <option value="timeout">Request Timeout (504)</option>
+          <option value="exception">Unhandled Exception</option>
+        </select>
+        <button class="btn-sre" onclick="simulateError()">⚡ Generate Error</button>
+        <div id="error-result" class="sre-result"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bookings Modal -->
+  <div class="modal-overlay" id="bookings-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>📋 All Bookings</h2>
+        <button class="modal-close" onclick="closeBookingsModal()">✕</button>
+      </div>
+      <div id="bookings-body">
+        <div class="no-bookings">
+          <div class="no-bookings-icon">🔄</div>
+          <p>Loading bookings...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset Confirm Modal -->
+  <div class="confirm-overlay" id="reset-confirm">
+    <div class="confirm-box">
+      <h3>⚠️ Reset All Bookings?</h3>
+      <p>This will clear all reservations and reset every seat to available. This action cannot be undone.</p>
+      <div class="confirm-actions">
+        <button class="btn-confirm-yes" onclick="doReset()">Yes, Reset</button>
+        <button class="btn-confirm-no" onclick="closeConfirm()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
 <script>
-  window.console = window.console || function(t) {};
-</script>
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
-<script>
-  if (document.location.search.match(/type=embed/gi)) {
-    window.parent.postMessage("resize", "*");
-  }
-
-
-  function enable(y) {
-    document.getElementById(y).disabled= false;
-
-}
-
-function disable(x) {
-     document.getElementById(x).disabled= true;
-}
-
-var data_seats ={
-"1A":"available","1B":"available","1C":"available","1D":"available","1E":"available","1F":"available",
-"2A":"available","2B":"available","2C":"available","2D":"available","2E":"available","2F":"available",
-"3A":"available","3B":"available","3C":"available","3D":"available","3E":"available","3F":"available",
-"4A":"available","4B":"available","4C":"available","4D":"available","4E":"available","4F":"available",
-"5A":"available","5B":"available","5C":"available","5D":"available","5E":"available","5F":"available",
-"6A":"available","6B":"available","6C":"available","6D":"available","6E":"available","6F":"available",
-"7A":"available","7B":"available","7C":"available","7D":"available","7E":"available","7F":"available",
-"8A":"available","8B":"available","8C":"available","8D":"available","8E":"available","8F":"available",
-"9A":"available","9B":"available","9C":"available","9D":"available","9E":"available","9F":"available",
-"10A":"available","10B":"available","10C":"available","10D":"available","10E":"available","10F":"available"
-}
-
-function data_all(){
-
-$.get("/get").done(function(data) {
-  var obj = JSON.parse(data);
-  console.log(obj);
-  for (x in obj) {
-  if (obj[x] == "blocked"){
-    disable(x)
-    data_seats[x] = "blocked"
-  }
-  else{
-    enable(x)
-  }
-}
+// ===== Seat Data =====
+var data_seats = {};
+var rows = [1,2,3,4,5,6,7,8,9,10];
+var cols = ['A','B','C','D','E','F'];
+rows.forEach(function(r) {
+  cols.forEach(function(c) { data_seats[r + c] = 'available'; });
 });
-  
+
+// ===== Generate Seat Grid =====
+function buildSeatGrid() {
+  var grid = document.getElementById('seat-grid');
+  grid.innerHTML = '';
+  rows.forEach(function(r) {
+    var row = document.createElement('div');
+    row.className = 'seat-row';
+
+    var label = document.createElement('div');
+    label.className = 'row-label';
+    label.textContent = r;
+    row.appendChild(label);
+
+    var leftGroup = document.createElement('div');
+    leftGroup.className = 'seat-group left';
+    var rightGroup = document.createElement('div');
+    rightGroup.className = 'seat-group right';
+
+    cols.forEach(function(c, idx) {
+      var seatId = r + c;
+      var seat = document.createElement('div');
+      seat.className = 'seat';
+      var input = document.createElement('input');
+      input.type = 'checkbox';
+      input.id = seatId;
+      input.onclick = function() { myFunction(seatId); };
+      var lbl = document.createElement('label');
+      lbl.setAttribute('for', seatId);
+      lbl.textContent = seatId;
+      seat.appendChild(input);
+      seat.appendChild(lbl);
+      if (idx < 3) leftGroup.appendChild(seat);
+      else rightGroup.appendChild(seat);
+    });
+
+    row.appendChild(leftGroup);
+    row.appendChild(rightGroup);
+
+    var labelR = document.createElement('div');
+    labelR.className = 'row-label';
+    labelR.textContent = r;
+    row.appendChild(labelR);
+
+    grid.appendChild(row);
+  });
+}
+
+// ===== Load seat status from DB =====
+function data_all() {
+  $.get("/get").done(function(data) {
+    var obj = typeof data === 'string' ? JSON.parse(data) : data;
+    var avail = 0, blocked = 0;
+    for (var x in obj) {
+      data_seats[x] = obj[x];
+      var el = document.getElementById(x);
+      if (!el) continue;
+      if (obj[x] === "blocked") {
+        el.disabled = true;
+        blocked++;
+      } else {
+        el.disabled = false;
+        avail++;
+      }
+    }
+    document.getElementById('stat-available').textContent = avail;
+    updateSelectedDisplay();
+  });
 }
 
 function myFunction(z) {
-  var checkBox = document.getElementById(z);
-   if (checkBox.checked == true){
-    data_seats[z]="reserved"
-  } else {
-     data_seats[z]="available"
-  }
+  var cb = document.getElementById(z);
+  data_seats[z] = cb.checked ? "reserved" : "available";
+  updateSelectedDisplay();
 }
 
-function reserve_seats(){
-  // --- Client-side validation ---
-  let nameVal = document.getElementById("name").value.trim();
-  let phoneVal = document.getElementById("phone").value.trim();
-
-  if (!nameVal) {
-    showError("Please enter your name.");
-    return;
+function updateSelectedDisplay() {
+  var selected = [];
+  for (var k in data_seats) {
+    if (data_seats[k] === "reserved") selected.push(k);
   }
-  if (!phoneVal || phoneVal.length < 7) {
-    showError("Please enter a valid phone number (at least 7 digits).");
-    return;
-  }
+  selected.sort();
+  document.getElementById('stat-selected').textContent = selected.length;
+  document.getElementById('selected-list').textContent = selected.length ? selected.join(', ') : 'None';
+}
 
-  // Check if any seats selected
-  let hasSelection = false;
-  for (let k in data_seats) {
-    if (data_seats[k] === "reserved") {
-      hasSelection = true;
-      break;
-    }
-  }
-  if (!hasSelection) {
-    showError("Please select at least one seat before reserving.");
-    return;
-  }
+// ===== Reserve Seats =====
+function reserve_seats() {
+  var nameVal = document.getElementById("name").value.trim();
+  var phoneVal = document.getElementById("phone").value.trim();
 
-  let userdetails = {
-    name: nameVal,
-    number: phoneVal
-  };
+  if (!nameVal) { showToast("Please enter your name.", "error"); return; }
+  if (!phoneVal || phoneVal.length < 7) { showToast("Please enter a valid phone number (min 7 digits).", "error"); return; }
 
-  let formData = new FormData();
+  var hasSelection = false;
+  for (var k in data_seats) { if (data_seats[k] === "reserved") { hasSelection = true; break; } }
+  if (!hasSelection) { showToast("Please select at least one seat.", "error"); return; }
+
+  var userdetails = { name: nameVal, number: phoneVal };
+  var formData = new FormData();
   formData.append("userdetails", JSON.stringify(userdetails));
   formData.append("data_seats", JSON.stringify(data_seats));
 
-  // Disable button during request
-  let reserveBtn = document.querySelector('.button');
-  reserveBtn.disabled = true;
-  reserveBtn.innerHTML = '<span>Reserving...</span>';
+  var btn = document.getElementById('btn-reserve');
+  btn.disabled = true;
+  btn.textContent = '⏳ Reserving...';
 
   $.ajax({
-    url: '/update',
-    type: 'POST',
-    data: formData,
-    dataType: 'json',
-    cache: false,
-    contentType: false,
-    processData: false,
+    url: '/update', type: 'POST', data: formData,
+    dataType: 'json', cache: false, contentType: false, processData: false,
     success: function(response) {
       if (response.flag == 0) {
-        showSuccess(response.message || "Seats reserved successfully!");
-        setTimeout(function() {
-          location.replace("/details");
-        }, 1500);
+        showToast(response.message || "Seats reserved successfully!", "success");
+        setTimeout(function() { location.replace("/details"); }, 1500);
       } else {
-        showError(response.error || "Reservation failed. Please try again.");
-        reserveBtn.disabled = false;
-        reserveBtn.innerHTML = '<span>Reserve Seats</span>';
+        showToast(response.error || "Reservation failed.", "error");
+        btn.disabled = false; btn.textContent = '🎬 Reserve Seats';
       }
     },
     error: function(xhr) {
-      let msg = "Something went wrong. Please try again.";
-      try {
-        let resp = JSON.parse(xhr.responseText);
-        if (resp.error) msg = resp.error;
-      } catch(e) {}
-      showError(msg);
-      reserveBtn.disabled = false;
-      reserveBtn.innerHTML = '<span>Reserve Seats</span>';
+      var msg = "Something went wrong.";
+      try { var r = JSON.parse(xhr.responseText); if (r.error) msg = r.error; } catch(e) {}
+      showToast(msg, "error");
+      btn.disabled = false; btn.textContent = '🎬 Reserve Seats';
     }
   });
 }
 
-function showError(message) {
-  removeToast();
-  let toast = document.createElement('div');
-  toast.id = 'toast-msg';
-  toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#f44336;color:white;padding:16px 28px;border-radius:8px;font-size:16px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:90%;text-align:center;animation:slideDown 0.3s ease;';
-  toast.innerHTML = '⚠️ ' + message;
-  document.body.appendChild(toast);
-  setTimeout(removeToast, 6000);
+// ===== View Bookings Modal =====
+function openBookingsModal() {
+  document.getElementById('bookings-modal').classList.add('active');
+  document.getElementById('bookings-body').innerHTML =
+    '<div class="no-bookings"><div class="no-bookings-icon">🔄</div><p>Loading...</p></div>';
+
+  $.get("/getUsersDetails").done(function(data) {
+    var bookings = typeof data === 'string' ? JSON.parse(data) : data;
+    if (!bookings || bookings.length === 0) {
+      document.getElementById('bookings-body').innerHTML =
+        '<div class="no-bookings"><div class="no-bookings-icon">🎫</div><p>No bookings yet.</p></div>';
+      return;
+    }
+    var html = '<table class="booking-table"><thead><tr><th>#</th><th>Name</th><th>Phone</th><th>Seats</th></tr></thead><tbody>';
+    bookings.forEach(function(b, i) {
+      html += '<tr><td>' + (i+1) + '</td><td>' + b.name + '</td><td>' + b.phone_no + '</td><td>' + b.seats + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('bookings-body').innerHTML = html;
+  }).fail(function() {
+    document.getElementById('bookings-body').innerHTML =
+      '<div class="no-bookings"><div class="no-bookings-icon">❌</div><p>Failed to load bookings.</p></div>';
+  });
+}
+function closeBookingsModal() { document.getElementById('bookings-modal').classList.remove('active'); }
+
+// ===== Reset Bookings =====
+function confirmReset() { document.getElementById('reset-confirm').classList.add('active'); }
+function closeConfirm() { document.getElementById('reset-confirm').classList.remove('active'); }
+function doReset() {
+  closeConfirm();
+  $.ajax({
+    url: '/resetBookings', type: 'POST',
+    success: function(data) {
+      var resp = typeof data === 'string' ? JSON.parse(data) : data;
+      showToast(resp.message || "Bookings reset successfully!", "success");
+      setTimeout(function() { location.reload(); }, 1200);
+    },
+    error: function() { showToast("Failed to reset bookings.", "error"); }
+  });
 }
 
-function showSuccess(message) {
-  removeToast();
-  let toast = document.createElement('div');
-  toast.id = 'toast-msg';
-  toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#4CAF50;color:white;padding:16px 28px;border-radius:8px;font-size:16px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:90%;text-align:center;animation:slideDown 0.3s ease;';
-  toast.innerHTML = '✅ ' + message;
-  document.body.appendChild(toast);
+// ===== Toast =====
+function showToast(msg, type) {
+  var toast = document.getElementById('toast');
+  toast.className = 'toast ' + (type || 'success');
+  var icon = type === 'error' ? '⚠️' : (type === 'warning' ? '⚡' : '✅');
+  toast.innerHTML = icon + ' ' + msg;
+  toast.classList.add('show');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(function() { toast.classList.remove('show'); }, 5000);
 }
 
-function removeToast() {
-  let existing = document.getElementById('toast-msg');
-  if (existing) existing.remove();
-}
-
-
-
-</script>
-</head>
-<body onload="data_all()">
-<div class="theatre">
-<div class="screen">
-<h1>Mini Screen 1</h1>
-<span class="label success">Selected</span>
-<span class="label danger">Available</span>
-<span class="label other">Reserved</span>
-</div>
-<div class="exit exit--front fuselage">
-</div>
-<ol class="cabin fuselage">
-<li class="row row--1">
-<ol class="seats" type="A">
-<li class="seat">
-<input type="checkbox" onclick="myFunction('1A')" id="1A">
-<label for="1A">1A</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('1B')" id="1B">
-<label for="1B">1B</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('1C')" id="1C">
-<label for="1C">1C</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('1D')" id="1D">
-<label for="1D">1D</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('1E')" id="1E">
-<label for="1E">1E</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('1F')" id="1F">
-<label for="1F">1F</label>
-</li>
-</ol>
-</li>
-<li class="row row--2">
-<ol class="seats" type="A">
-<li class="seat">
-<input type="checkbox" onclick="myFunction('2A')" id="2A">
-<label for="2A">2A</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('2B')" id="2B">
-<label for="2B">2B</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('2C')" id="2C">
-<label for="2C">2C</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('2D')" id="2D">
-<label for="2D">2D</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('2E')" id="2E">
-<label for="2E">2E</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('2D')" id="2F">
-<label for="2F">2F</label>
-</li>
-</ol>
-</li>
-<li class="row row--3">
-<ol class="seats" type="A">
-<li class="seat">
-<input type="checkbox" onclick="myFunction('3A')" id="3A">
-<label for="3A">3A</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('3B')" id="3B">
-<label for="3B">3B</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('3C')" id="3C">
-<label for="3C">3C</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('3D')" id="3D">
-<label for="3D">3D</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('3E')" id="3E">
-<label for="3E">3E</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('3F')" id="3F">
-<label for="3F">3F</label>
-</li>
-</ol>
-</li>
-<li class="row row--4">
-<ol class="seats" type="A">
-<li class="seat">
-<input type="checkbox" onclick="myFunction('4A')" id="4A">
-<label for="4A">4A</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('4B')" id="4B">
-<label for="4B">4B</label>
-</li>
- <li class="seat">
-<input type="checkbox" onclick="myFunction('4C')" id="4C">
-<label for="4C">4C</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('4D')" id="4D">
-<label for="4D">4D</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('4E')" id="4E">
-<label for="4E">4E</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('4F')" id="4F">
-<label for="4F">4F</label>
-</li>
-</ol>
-</li>
-<li class="row row--5">
-<ol class="seats" type="A">
-<li class="seat">
-<input type="checkbox" onclick="myFunction('5A')" id="5A">
-<label for="5A">5A</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('5B')" id="5B">
-<label for="5B">5B</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('5C')" id="5C">
-<label for="5C">5C</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('5D')" id="5D">
-<label for="5D">5D</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('5E')" id="5E">
-<label for="5E">5E</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('5F')" id="5F">
-<label for="5F">5F</label>
-</li>
-</ol>
-</li>
-<li class="row row--6">
-<ol class="seats" type="A">
-<li class="seat">
-<input type="checkbox" onclick="myFunction('6A')" id="6A">
-<label for="6A">6A</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('6B')"id="6B">
-<label for="6B">6B</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('6C')" id="6C">
-<label for="6C">6C</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('6D')" id="6D">
-<label for="6D">6D</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('6E')" id="6E">
-<label for="6E">6E</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('6F')" id="6F">
-<label for="6F">6F</label>
-</li>
-</ol>
-</li>
-<li class="row row--7">
-<ol class="seats" type="A">
-<li class="seat">
-<input type="checkbox" onclick="myFunction('7A')" id="7A">
-<label for="7A">7A</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('7B')" id="7B">
-<label for="7B">7B</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('7C')" id="7C">
-<label for="7C">7C</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('7D')" id="7D">
-<label for="7D">7D</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('7E')" id="7E">
-<label for="7E">7E</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('7F')" id="7F">
-<label for="7F">7F</label>
-</li>
-</ol>
-</li>
-<li class="row row--8">
-<ol class="seats" type="A">
-<li class="seat">
-<input type="checkbox" onclick="myFunction('8A')" id="8A">
-<label for="8A">8A</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('8B')" id="8B">
-<label for="8B">8B</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('8C')" id="8C">
-<label for="8C">8C</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('8D')" id="8D">
-<label for="8D">8D</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('8E')" id="8E">
-<label for="8E">8E</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('8F')" id="8F">
-<label for="8F">8F</label>
-</li>
-</ol>
-</li>
-<li class="row row--9">
-<ol class="seats" type="A">
-<li class="seat">
-<input type="checkbox" onclick="myFunction('9A')" id="9A">
-<label for="9A">9A</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('9B')" id="9B">
-<label for="9B">9B</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('9C')" id="9C">
-<label for="9C">9C</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('9D')" id="9D">
-<label for="9D">9D</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('9E')" id="9E">
-<label for="9E">9E</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('9F')" id="9F">
-<label for="9F">9F</label>
-</li>
-</ol>
-</li>
-<li class="row row--10">
-<ol class="seats" type="A">
-<li class="seat">
-<input type="checkbox" onclick="myFunction('10A')" id="10A">
-<label for="10A">10A</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('10B')" id="10B">
-<label for="10B">10B</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('10C')" id="10C">
-<label for="10C">10C</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('10D')" id="10D">
-<label for="10D">10D</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('10E')" id="10E">
-<label for="10E">10E</label>
-</li>
-<li class="seat">
-<input type="checkbox" onclick="myFunction('10F')" id="10F">
-<label for="10F">10F</label>
-</li>
-</ol>
-</li>
-</ol>
-<br><br><br><br>
-
-<input type="text" id="name" placeholder="Enter the name" style="width: 100%;" required/><br>
-<input type="number" id="phone" placeholder="Enter the phone number" style="width: 100%;" required/>
-<button onclick="reserve_seats()" class="button"><span>Reserve Seats</span></button>
-
-<br><br>
-<div style="border-top: 2px solid #333; padding-top: 15px; margin-top: 20px;">
-  <h3 style="color: #f44336; margin-bottom: 10px;">🛠️ SRE Error Simulator</h3>
-  <p style="color: #aaa; font-size: 13px; margin-bottom: 10px;">Generate test errors for SRE agent monitoring</p>
-  <select id="errorType" style="width: 100%; padding: 10px; border-radius: 4px; font-size: 14px; margin-bottom: 10px; background: #222; color: white; border: 1px solid #555;">
-    <option value="all">🔥 All Errors (fire everything)</option>
-    <option value="500">500 - Internal Server Error</option>
-    <option value="404">404 - Not Found</option>
-    <option value="503">503 - Service Unavailable</option>
-    <option value="db_error">Database Connection Error</option>
-    <option value="timeout">Request Timeout (504)</option>
-    <option value="exception">Unhandled Exception (Traceback)</option>
-  </select>
-  <button onclick="simulateError()" style="border-radius:4px;background-color:#f44336;border:none;color:#fff;text-align:center;font-size:16px;padding:12px;width:100%;cursor:pointer;">⚡ Generate Error</button>
-  <div id="error-result" style="margin-top: 10px;"></div>
-</div>
-
-</div>
-
-<script>
+// ===== SRE Error Simulator =====
 function simulateError() {
   var errorType = document.getElementById('errorType').value;
-  var resultDiv = document.getElementById('error-result');
-  resultDiv.innerHTML = '<span style="color:#ffa726;">Generating error...</span>';
-
+  var result = document.getElementById('error-result');
+  result.style.display = 'block';
+  result.style.background = 'rgba(253,203,110,0.1)';
+  result.style.color = '#fdcb6e';
+  result.innerHTML = '⏳ Generating error...';
   $.ajax({
-    url: '/simulate/error',
-    type: 'POST',
-    contentType: 'application/json',
+    url: '/simulate/error', type: 'POST', contentType: 'application/json',
     data: JSON.stringify({error_type: errorType}),
     complete: function(xhr) {
       var resp;
       try { resp = JSON.parse(xhr.responseText); } catch(e) { resp = {}; }
-      var statusCode = xhr.status;
-      var color = statusCode >= 500 ? '#f44336' : (statusCode >= 400 ? '#ff9800' : '#4CAF50');
-      resultDiv.innerHTML = '<div style="background:' + color + ';color:white;padding:12px;border-radius:6px;margin-top:8px;">' +
-        '<strong>HTTP ' + statusCode + '</strong> — ' + (resp.message || resp.error || 'Error generated') +
-        '<br><span style="font-size:12px;opacity:0.8;">Error logged to IBM Cloud Logs. Use SRE agent to query: "check error logs"</span>' +
-        '</div>';
+      var code = xhr.status;
+      var bg = code >= 500 ? 'rgba(233,69,96,0.15)' : 'rgba(253,203,110,0.15)';
+      var color = code >= 500 ? '#e94560' : '#fdcb6e';
+      result.style.background = bg;
+      result.style.color = color;
+      result.innerHTML = '<strong>HTTP ' + code + '</strong> — ' + (resp.message || resp.error || 'Error generated');
     }
   });
 }
+
+// ===== Init =====
+window.onload = function() { buildSeatGrid(); data_all(); };
+
+// Close modals on overlay click
+document.addEventListener('click', function(e) {
+  if (e.target.id === 'bookings-modal') closeBookingsModal();
+  if (e.target.id === 'reset-confirm') closeConfirm();
+});
 </script>
-
-
-</body></html>
+</body>
+</html>

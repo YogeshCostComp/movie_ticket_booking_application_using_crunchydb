@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, g
 import json
 import psycopg2
 import psycopg2.errorcodes
@@ -7,6 +7,8 @@ import logging
 import random
 import os
 import sys
+import uuid
+from datetime import datetime
 
 
 # Configure logging for IBM Cloud Code Engine
@@ -29,6 +31,113 @@ DB_NAME = os.environ.get('DB_NAME', 'hippo')
 DB_USER = os.environ.get('DB_USER', 'hippo')
 DB_PASSWORD = os.environ.get('DB_PASSWORD', 'datalake')
 DB_SSLMODE = os.environ.get('DB_SSLMODE', 'prefer')
+
+# ===== Tracing System =====
+def init_tracing_table():
+    """Create the tracing table if it doesn't exist."""
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS app_traces (
+                    id SERIAL PRIMARY KEY,
+                    trace_id VARCHAR(36) NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    action VARCHAR(100) NOT NULL,
+                    endpoint VARCHAR(200),
+                    method VARCHAR(10),
+                    details TEXT,
+                    status VARCHAR(20) DEFAULT 'success',
+                    duration_ms NUMERIC(10,2),
+                    user_ip VARCHAR(50)
+                )
+            ''')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_trace_id ON app_traces(trace_id)')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_trace_timestamp ON app_traces(timestamp DESC)')
+        conn.commit()
+        conn.close()
+        logger.info("Tracing table initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize tracing table: {e}")
+
+def log_trace(trace_id, action, endpoint=None, method=None, details=None, status='success', duration_ms=None, user_ip=None):
+    """Log a trace entry to the database."""
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                '''INSERT INTO app_traces (trace_id, action, endpoint, method, details, status, duration_ms, user_ip)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+                (trace_id, action, endpoint, method, details, status, duration_ms, user_ip)
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to log trace: {e}")
+
+@app.before_request
+def before_request_trace():
+    """Generate or reuse trace_id for every request and start timer."""
+    # Get trace_id from header (for correlated requests) or generate new one
+    g.trace_id = request.headers.get('X-Trace-Id', str(uuid.uuid4()))
+    g.trace_start = time.time()
+    g.user_ip = request.remote_addr or 'unknown'
+
+@app.after_request
+def after_request_trace(response):
+    """Log the completed request as a trace entry."""
+    # Skip health checks, static files, and trace endpoints from tracing
+    skip_endpoints = ['/health', '/favicon.ico', '/getRecentTraces']
+    if request.path in skip_endpoints or request.path.startswith('/getTraceDetails'):
+        return response
+
+    try:
+        duration_ms = round((time.time() - g.trace_start) * 1000, 2)
+        trace_id = getattr(g, 'trace_id', 'unknown')
+        status = 'success' if response.status_code < 400 else 'error'
+
+        action = f"{request.method} {request.path}"
+        details = None
+        if request.path == '/update' and request.method == 'POST':
+            action = 'BOOK_SEATS'
+            try:
+                user_data = json.loads(request.form.get('userdetails', '{}'))
+                details = f"User: {user_data.get('name', 'N/A')}, Phone: {user_data.get('number', 'N/A')}"
+            except:
+                details = 'Booking attempt'
+        elif request.path == '/':
+            action = 'PAGE_LOAD_HOME'
+        elif request.path == '/details':
+            action = 'PAGE_LOAD_BOOKINGS'
+        elif request.path == '/get':
+            action = 'FETCH_SEAT_STATUS'
+        elif request.path == '/getUsersDetails':
+            action = 'FETCH_ALL_BOOKINGS'
+        elif request.path == '/resetBookings':
+            action = 'RESET_ALL_BOOKINGS'
+        elif request.path == '/create':
+            action = 'INIT_SEATS_TABLE'
+        elif request.path.startswith('/simulate'):
+            action = 'SRE_ERROR_SIMULATION'
+            details = request.path
+
+        log_trace(
+            trace_id=trace_id,
+            action=action,
+            endpoint=request.path,
+            method=request.method,
+            details=details,
+            status=status,
+            duration_ms=duration_ms,
+            user_ip=getattr(g, 'user_ip', 'unknown')
+        )
+
+        # Add trace_id to response headers for client correlation
+        response.headers['X-Trace-Id'] = trace_id
+    except Exception as e:
+        logger.error(f"Tracing after_request error: {e}")
+
+    return response
 
 def get_db_connection():
     """Create a database connection using environment variables."""
@@ -215,6 +324,122 @@ def staus():
 	return x
 
 
+# ===== Reset Bookings Endpoint =====
+
+@app.route("/resetBookings", methods=['POST', 'GET'])
+def reset_bookings():
+    """Reset all bookings - clear userdetails and reset all seats to available."""
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM userdetails")
+            cur.execute("UPDATE screen SET status = 'available'")
+            logger.info("All bookings have been reset")
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success", "message": "All bookings have been reset. All seats are now available."})
+    except Exception as e:
+        logger.error(f"Failed to reset bookings: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ===== Tracing Query Endpoints =====
+
+@app.route("/getRecentTraces")
+def get_recent_traces():
+    """Get recent unique trace IDs with summary info."""
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT trace_id,
+                       MIN(timestamp) as started_at,
+                       MAX(timestamp) as ended_at,
+                       COUNT(*) as event_count,
+                       ARRAY_AGG(DISTINCT action) as actions,
+                       MAX(user_ip) as user_ip,
+                       CASE WHEN BOOL_OR(status = 'error') THEN 'error' ELSE 'success' END as overall_status
+                FROM app_traces
+                GROUP BY trace_id
+                ORDER BY MIN(timestamp) DESC
+                LIMIT %s
+            ''', (limit,))
+            rows = cur.fetchall()
+        conn.close()
+
+        traces = []
+        for row in rows:
+            traces.append({
+                "trace_id": row[0],
+                "started_at": row[1].isoformat() if row[1] else None,
+                "ended_at": row[2].isoformat() if row[2] else None,
+                "event_count": row[3],
+                "actions": row[4],
+                "user_ip": row[5],
+                "overall_status": row[6]
+            })
+        return jsonify({"status": "success", "total": len(traces), "traces": traces})
+    except Exception as e:
+        logger.error(f"Failed to get traces: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/getTraceDetails/<trace_id>")
+def get_trace_details(trace_id):
+    """Get the full end-to-end transaction flow for a specific trace ID."""
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT id, trace_id, timestamp, action, endpoint, method,
+                       details, status, duration_ms, user_ip
+                FROM app_traces
+                WHERE trace_id = %s
+                ORDER BY timestamp ASC
+            ''', (trace_id,))
+            rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return jsonify({"status": "error", "message": f"No trace found with ID: {trace_id}"}), 404
+
+        events = []
+        for row in rows:
+            events.append({
+                "id": row[0],
+                "trace_id": row[1],
+                "timestamp": row[2].isoformat() if row[2] else None,
+                "action": row[3],
+                "endpoint": row[4],
+                "method": row[5],
+                "details": row[6],
+                "status": row[7],
+                "duration_ms": float(row[8]) if row[8] else None,
+                "user_ip": row[9]
+            })
+
+        # Calculate total duration
+        first_ts = rows[0][2]
+        last_ts = rows[-1][2]
+        total_duration_ms = (last_ts - first_ts).total_seconds() * 1000 if first_ts and last_ts else 0
+
+        return jsonify({
+            "status": "success",
+            "trace_id": trace_id,
+            "total_events": len(events),
+            "total_duration_ms": round(total_duration_ms, 2),
+            "started_at": events[0]["timestamp"],
+            "ended_at": events[-1]["timestamp"],
+            "user_ip": events[0]["user_ip"],
+            "overall_status": "error" if any(e["status"] == "error" for e in events) else "success",
+            "events": events
+        })
+    except Exception as e:
+        logger.error(f"Failed to get trace details: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 # ===== Error Simulation Endpoints (for SRE testing) =====
 
 @app.route("/simulate/error", methods=['POST'])
@@ -303,4 +528,9 @@ def simulate_error():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))  # Code Engine uses PORT env var
     logger.info(f"Starting Movie Ticket Booking App on port {port}")
+    # Initialize tracing table on startup
+    try:
+        init_tracing_table()
+    except Exception as e:
+        logger.warning(f"Could not initialize tracing table on startup: {e}")
     app.run(host="0.0.0.0", port=port, debug=False)

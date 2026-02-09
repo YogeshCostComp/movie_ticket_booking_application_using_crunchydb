@@ -522,7 +522,9 @@ def root():
             '/tools/get_system_status',
             '/tools/start_monitoring',
             '/tools/get_monitoring_status',
-            '/tools/stop_monitoring'
+            '/tools/stop_monitoring',
+            '/tools/get_recent_traces',
+            '/tools/get_trace_details'
         ]
     })
 
@@ -1382,7 +1384,46 @@ def stop_monitoring():
     })
 
 
-# ============== MCP Protocol Support ==============
+# ============== Tracing Endpoints ==============
+
+@app.route('/tools/get_recent_traces', methods=['GET', 'POST'])
+def rest_get_recent_traces():
+    """Get recent trace IDs from the app"""
+    try:
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            limit = data.get('limit', 20)
+        else:
+            limit = request.args.get('limit', 20, type=int)
+
+        response = requests.get(f"{APP_URL}/getRecentTraces?limit={limit}", timeout=15)
+        response.raise_for_status()
+        return jsonify(response.json())
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/tools/get_trace_details', methods=['GET', 'POST'])
+def rest_get_trace_details():
+    """Get full trace details for a specific trace ID"""
+    try:
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            trace_id = data.get('trace_id', '')
+        else:
+            trace_id = request.args.get('trace_id', '')
+
+        if not trace_id:
+            return jsonify({"status": "error", "message": "trace_id is required"}), 400
+
+        response = requests.get(f"{APP_URL}/getTraceDetails/{trace_id}", timeout=15)
+        response.raise_for_status()
+        return jsonify(response.json())
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ============== MCP Protocol Support ==========================
 # MCP uses JSON-RPC 2.0 over HTTP/SSE
 
 MCP_TOOLS = [
@@ -1660,6 +1701,35 @@ MCP_TOOLS = [
             "type": "object",
             "properties": {},
             "required": []
+        }
+    },
+    {
+        "name": "get_recent_traces",
+        "description": "Get recent trace IDs from the Movie Ticket Booking app. Each trace represents a user session or transaction. Returns trace_id, start time, end time, event count, actions performed, user IP, and overall status. Use this to find trace IDs that can then be explored in detail.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of recent traces to return (default: 20)",
+                    "default": 20
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_trace_details",
+        "description": "Get the full end-to-end transaction flow for a specific trace ID. Shows every event that happened during that user session in chronological order - page loads, seat selections, booking attempts, API calls, etc. Each event includes timestamp, action, endpoint, HTTP method, details, status, and duration. Use this after get_recent_traces to drill into a specific trace.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "trace_id": {
+                    "type": "string",
+                    "description": "The trace ID to get details for (UUID format)"
+                }
+            },
+            "required": ["trace_id"]
         }
     }
 ]
@@ -2382,6 +2452,28 @@ def execute_mcp_tool(tool_name, args):
                 "message": f"🛑 Monitoring stopped. Was running since {started}, completed {checks_done} check(s).",
                 "total_checks_completed": checks_done
             }
+
+        elif tool_name == 'get_recent_traces':
+            limit = args.get('limit', 20)
+            try:
+                response = requests.get(f"{APP_URL}/getRecentTraces?limit={limit}", timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                return data
+            except Exception as e:
+                return {"status": "error", "message": f"Failed to get traces: {str(e)}"}
+
+        elif tool_name == 'get_trace_details':
+            trace_id = args.get('trace_id', '')
+            if not trace_id:
+                return {"status": "error", "message": "trace_id is required. Use get_recent_traces first to find a trace ID."}
+            try:
+                response = requests.get(f"{APP_URL}/getTraceDetails/{trace_id}", timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                return data
+            except Exception as e:
+                return {"status": "error", "message": f"Failed to get trace details: {str(e)}"}
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}

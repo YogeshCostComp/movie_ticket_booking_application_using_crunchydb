@@ -367,12 +367,33 @@ def _monitoring_loop():
     """Background thread: sleeps for interval, then runs health + log checks and notifies Teams."""
     global _monitoring_state
     logger.info("Monitoring loop started — first check already done, sleeping before next cycle")
+
+    # Determine self-ping URL to keep Code Engine instance alive
+    _self_url = os.environ.get('CE_APP', '')  # Code Engine sets this
+    if not _self_url:
+        _self_url = os.environ.get('APP_URL_SELF', 'http://localhost:8080')
+    if _self_url and not _self_url.startswith('http'):
+        _self_url = 'https://' + _self_url
+
     while _monitoring_state['active']:
         # Sleep FIRST — the initial check was already done by start_monitoring
-        for _ in range(_monitoring_state['interval_seconds']):
-            if not _monitoring_state['active']:
-                break
-            time_module.sleep(1)
+        # Self-ping every 30 seconds during sleep to prevent Code Engine scale-to-zero
+        elapsed = 0
+        ping_interval = 30  # seconds between keep-alive pings
+        while elapsed < _monitoring_state['interval_seconds'] and _monitoring_state['active']:
+            sleep_chunk = min(ping_interval, _monitoring_state['interval_seconds'] - elapsed)
+            for _ in range(sleep_chunk):
+                if not _monitoring_state['active']:
+                    break
+                time_module.sleep(1)
+            elapsed += sleep_chunk
+            # Self-ping to keep the instance alive
+            if _monitoring_state['active'] and _self_url:
+                try:
+                    requests.get(_self_url + '/health', timeout=5)
+                    logger.debug("Self-ping keep-alive sent")
+                except Exception:
+                    pass  # Best effort
 
         # After waking up, check if we should still be running
         if not _monitoring_state['active']:

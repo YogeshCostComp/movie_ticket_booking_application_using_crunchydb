@@ -268,34 +268,30 @@ def _run_single_health_check():
         result['issue_summary'].append(f'Database health check failed: {e}')
 
     # --- Error / Warning logs (last 3 minutes window to overlap with interval) ---
-    try:
-        start_date = (datetime.utcnow() - timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
-        end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    start_date = (datetime.utcnow() - timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
-        error_query = (
-            "source logs "
-            "| filter $d.message.message ~ /error|Error|ERROR|exception|Exception|failed|Failed|CRITICAL|critical|Traceback/ "
-            "| limit 20"
-        )
+    # Error logs - use same proven query format as get_error_logs
+    try:
+        error_query = "source logs | filter $d.message.message ~ /error|Error|ERROR|exception|Exception|failed|Failed|SIMULATED/ | limit 20"
         error_logs = query_cloud_logs(error_query, start_date=start_date, end_date=end_date, limit=20)
         if isinstance(error_logs, list) and error_logs:
             result['error_logs'] = error_logs
             result['issues_found'] = True
             result['issue_summary'].append(f"{len(error_logs)} error log(s) detected in last 3 minutes")
+    except Exception as e:
+        logger.warning(f"Monitoring: error log query failed: {e}")
 
-        warning_query = (
-            "source logs "
-            "| filter $d.message.message ~ /warning|Warning|WARNING|warn|WARN/ "
-            "| limit 20"
-        )
+    # Warning logs
+    try:
+        warning_query = "source logs | filter $d.message.message ~ /warning|Warning|WARNING/ | limit 20"
         warning_logs = query_cloud_logs(warning_query, start_date=start_date, end_date=end_date, limit=20)
         if isinstance(warning_logs, list) and warning_logs:
             result['warning_logs'] = warning_logs
             result['issues_found'] = True
             result['issue_summary'].append(f"{len(warning_logs)} warning log(s) detected in last 3 minutes")
     except Exception as e:
-        logger.warning(f"Monitoring: log query failed: {e}")
-        result['issue_summary'].append(f'Log query failed: {e}')
+        logger.warning(f"Monitoring: warning log query failed: {e}")
 
     # --- Recommendation ---
     if not result['issues_found']:
@@ -344,10 +340,20 @@ def _run_single_health_check():
 
 
 def _monitoring_loop():
-    """Background thread: runs health + log checks every N seconds and notifies Teams."""
+    """Background thread: sleeps for interval, then runs health + log checks and notifies Teams."""
     global _monitoring_state
-    logger.info("Monitoring loop started")
+    logger.info("Monitoring loop started — first check already done, sleeping before next cycle")
     while _monitoring_state['active']:
+        # Sleep FIRST — the initial check was already done by start_monitoring
+        for _ in range(_monitoring_state['interval_seconds']):
+            if not _monitoring_state['active']:
+                break
+            time_module.sleep(1)
+
+        # After waking up, check if we should still be running
+        if not _monitoring_state['active']:
+            break
+
         try:
             result = _run_single_health_check()
             _monitoring_state['last_check_at'] = datetime.utcnow().isoformat()
@@ -369,12 +375,6 @@ def _monitoring_loop():
                 _send_teams_notification(webhook_url, result)
         except Exception as e:
             logger.error(f"Monitoring check error: {e}")
-
-        # Sleep in small increments so we can stop quickly
-        for _ in range(_monitoring_state['interval_seconds']):
-            if not _monitoring_state['active']:
-                break
-            time_module.sleep(1)
 
     # Send a final "monitoring stopped" message to Teams
     webhook_url = _monitoring_state.get('teams_webhook_url', '')

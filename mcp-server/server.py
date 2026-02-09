@@ -524,7 +524,10 @@ def root():
             '/tools/get_monitoring_status',
             '/tools/stop_monitoring',
             '/tools/get_recent_traces',
-            '/tools/get_trace_details'
+            '/tools/get_trace_details',
+            '/tools/simulate_error',
+            '/tools/reset_bookings',
+            '/tools/get_trace_summary'
         ]
     })
 
@@ -1174,7 +1177,7 @@ def get_seat_status():
         
         seats = response.json()
         available = sum(1 for s in seats.values() if s == 'available')
-        booked = sum(1 for s in seats.values() if s == 'booked')
+        booked = sum(1 for s in seats.values() if s == 'blocked')
         
         return jsonify({
             "status": "success",
@@ -1243,12 +1246,23 @@ def get_system_status():
     
     # Check for recent errors in logs
     try:
-        query = "source logs | filter $d.message contains 'error' OR $d.message contains 'Traceback' | limit 5"
-        logs = query_cloud_logs(query, limit=5)
-        has_errors = 'error' in logs.lower() or 'traceback' in logs.lower()
+        query = "source logs | limit 50"
+        logs = query_cloud_logs(query, limit=50)
+        error_keywords = ('error', 'exception', 'failed', 'critical', 'traceback')
+        noise_keywords = ('pip', 'gunicorn', 'docker', 'sha256', 'Booting worker')
+        error_logs = []
+        if isinstance(logs, list):
+            for log in logs:
+                msg = log.get('message', '').lower()
+                if any(n in msg for n in noise_keywords):
+                    continue
+                if any(kw in msg for kw in error_keywords):
+                    error_logs.append(log)
+        has_errors = len(error_logs) > 0
         status["recent_errors"] = {
             "has_errors": has_errors,
-            "sample": logs[:500] if has_errors else None
+            "error_count": len(error_logs),
+            "sample": error_logs[:5] if has_errors else None
         }
     except Exception as e:
         status["recent_errors"] = {"status": "error", "message": str(e)}
@@ -1419,6 +1433,59 @@ def rest_get_trace_details():
         response = requests.get(f"{APP_URL}/getTraceDetails/{trace_id}", timeout=15)
         response.raise_for_status()
         return jsonify(response.json())
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/tools/simulate_error', methods=['GET', 'POST'])
+def rest_simulate_error():
+    """Simulate an error in the app for SRE testing"""
+    try:
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            error_type = data.get('error_type', '500')
+        else:
+            error_type = request.args.get('error_type', '500')
+
+        response = requests.post(
+            f"{APP_URL}/simulate/error",
+            json={"error_type": error_type},
+            timeout=15
+        )
+        return jsonify({
+            "status": "simulated",
+            "error_type": error_type,
+            "http_status": response.status_code,
+            "response": response.json()
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/tools/reset_bookings', methods=['GET', 'POST'])
+def rest_reset_bookings():
+    """Reset all bookings in the app"""
+    try:
+        response = requests.post(f"{APP_URL}/resetBookings", timeout=15)
+        response.raise_for_status()
+        return jsonify(response.json())
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/tools/get_trace_summary', methods=['GET', 'POST'])
+def rest_get_trace_summary():
+    """Get trace analytics summary"""
+    try:
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            limit = data.get('limit', 50)
+        else:
+            limit = request.args.get('limit', 50, type=int)
+
+        # Delegate to MCP tool handler
+        result = execute_mcp_tool('get_trace_summary', {'limit': limit})
+        return jsonify(result)
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -1730,6 +1797,45 @@ MCP_TOOLS = [
                 }
             },
             "required": ["trace_id"]
+        }
+    },
+    {
+        "name": "simulate_error",
+        "description": "Trigger a simulated error in the Movie Ticket App for SRE testing. Generates realistic error logs that will appear in Cloud Logs and traces. Valid error types: 404 (Not Found), 500 (Internal Server Error), 503 (Service Unavailable), db_error (Database Connection Error), timeout (Request Timeout), exception (Unhandled Exception), all (all error types at once).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "error_type": {
+                    "type": "string",
+                    "description": "Type of error to simulate: 404, 500, 503, db_error, timeout, exception, or all",
+                    "default": "500"
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "reset_bookings",
+        "description": "Reset all ticket bookings in the Movie Ticket App. Clears all user booking records and resets all 60 seats back to available. Use this to clean up test data or start fresh. WARNING: This is destructive and cannot be undone.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_trace_summary",
+        "description": "Get analytics summary of all traced user sessions. Shows total sessions, total events, avg events per session, avg session duration, booking success rate, most common user flows, error rate, and peak usage times. Use this for a high-level view of app usage patterns and health trends.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of recent traces to analyze (default: 50)",
+                    "default": 50
+                }
+            },
+            "required": []
         }
     }
 ]
@@ -2106,24 +2212,45 @@ def execute_mcp_tool(tool_name, args):
             start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
             end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
             
-            # Query for different failure categories
+            # Query for different failure categories from Cloud Logs
             categories = {
-                "exceptions": "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'exception|Exception|EXCEPTION|Traceback' | limit 50",
-                "http_errors": "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ '500|502|503|504|Internal Server Error' | limit 50",
-                "database_errors": "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'psycopg2|DatabaseError|OperationalError|connection refused|timeout expired' | limit 50",
-                "app_crashes": "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'OOMKilled|killed|crash|segfault|memory' | limit 50",
+                "exceptions": "source logs | filter $d.message.message ~ 'exception|Exception|EXCEPTION|Traceback' | limit 50",
+                "http_errors": "source logs | filter $d.message.message ~ '500|502|503|504|Internal Server Error' | limit 50",
+                "database_errors": "source logs | filter $d.message.message ~ 'psycopg2|DatabaseError|OperationalError|connection refused|timeout expired' | limit 50",
+                "app_crashes": "source logs | filter $d.message.message ~ 'OOMKilled|killed|crash|segfault|memory' | limit 50",
             }
             
             failure_summary = {}
             total_failures = 0
             for category, query in categories.items():
-                logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=50)
-                count = len(logs) if isinstance(logs, list) else 0
+                try:
+                    logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=50)
+                    count = len(logs) if isinstance(logs, list) else 0
+                except:
+                    count = 0
+                    logs = []
                 failure_summary[category] = {
                     "count": count,
                     "sample_logs": logs[:3] if isinstance(logs, list) and logs else []
                 }
                 total_failures += count
+            
+            # Also check app_traces for error traces (reliable DB-based source)
+            trace_errors = 0
+            try:
+                traces_resp = requests.get(f"{APP_URL}/getRecentTraces?limit=50", timeout=15)
+                if traces_resp.status_code == 200:
+                    traces_data = traces_resp.json()
+                    traces_list = traces_data.get('traces', [])
+                    error_traces = [t for t in traces_list if t.get('overall_status') == 'error']
+                    trace_errors = len(error_traces)
+                    failure_summary["traced_errors"] = {
+                        "count": trace_errors,
+                        "sample_logs": [{"trace_id": t['trace_id'], "actions": t.get('actions', []), "started_at": t.get('started_at')} for t in error_traces[:5]]
+                    }
+                    total_failures += trace_errors
+            except:
+                pass
             
             return {
                 "status": "success",
@@ -2201,10 +2328,12 @@ def execute_mcp_tool(tool_name, args):
                     instance_count = inst_data.get('instance_count', 0)
                     total_restarts = sum(i.get('restarts', 0) for i in instance_list)
                     oom_killed = any(i.get('container_reason') == 'OOMKilled' for i in instance_list)
-                    cpu_limit = app_info.get('cpu_limit', 'N/A')
-                    memory_limit = app_info.get('memory_limit', 'N/A')
-                    min_scale = app_info.get('min_scale', 'N/A')
-                    max_scale = app_info.get('max_scale', 'N/A')
+                    # Get CPU/memory from first running instance
+                    if instance_list:
+                        cpu_limit = instance_list[0].get('cpu_limit', 'N/A')
+                        memory_limit = instance_list[0].get('memory_limit', 'N/A')
+                    min_scale = app_info.get('min_instances', 'N/A')
+                    max_scale = app_info.get('max_instances', 'N/A')
             except:
                 pass
             
@@ -2222,14 +2351,26 @@ def execute_mcp_tool(tool_name, args):
             except:
                 pass
             
-            # Traffic from logs
-            traffic_query = "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'GET|POST|request' | limit 100"
-            traffic_logs = query_cloud_logs(traffic_query, limit=100)
-            request_count = len(traffic_logs) if isinstance(traffic_logs, list) else 0
-            
-            booking_query = "source logs | filter $d.label.Project == 'movie-ticket-project' | filter $d.message.message ~ 'update|INSERT|Reservation' | limit 100"
-            booking_logs = query_cloud_logs(booking_query, limit=100)
-            booking_count = len(booking_logs) if isinstance(booking_logs, list) else 0
+            # Traffic from app_traces DB (reliable — not dependent on Cloud Logs format)
+            request_count = 0
+            booking_count = 0
+            try:
+                traces_resp = requests.get(f"{APP_URL}/getRecentTraces?limit=50", timeout=15)
+                if traces_resp.status_code == 200:
+                    traces_data = traces_resp.json()
+                    traces_list = traces_data if isinstance(traces_data, list) else traces_data.get('traces', [])
+                    # Count total traced requests (each trace = a user session with multiple events)
+                    for t in traces_list:
+                        actions = t.get('actions', [])
+                        # Handle actions as list or comma-separated string
+                        actions_str = ','.join(actions) if isinstance(actions, list) else str(actions)
+                        event_count = t.get('event_count', 0)
+                        request_count += event_count
+                        # Count booking transactions
+                        if 'BOOKING_CONFIRMED' in actions_str or 'BOOK_SEATS' in actions_str:
+                            booking_count += 1
+            except:
+                pass
             
             # ---- Build issues list ----
             if not latency_sla_met:
@@ -2249,7 +2390,7 @@ def execute_mcp_tool(tool_name, args):
             if instance_count == 0:
                 issues.append("No running instances — app may be scaled to zero")
             if request_count == 0:
-                issues.append("No traffic detected in recent logs")
+                issues.append("No traffic detected in recent traces")
             
             # ---- Determine per-signal and overall status ----
             def signal_status(conditions_critical, conditions_degraded):
@@ -2349,7 +2490,7 @@ def execute_mcp_tool(tool_name, args):
                         "signal": "Traffic",
                         "status": traffic_status,
                         "metric": "Request Volume",
-                        "current_value": f"{request_count} requests in recent logs, {booking_count} booking transactions",
+                        "current_value": f"{request_count} requests in recent traces, {booking_count} booking transactions",
                         "target": "Non-zero traffic",
                         "sla_met": request_count > 0
                     },
@@ -2474,6 +2615,112 @@ def execute_mcp_tool(tool_name, args):
                 return data
             except Exception as e:
                 return {"status": "error", "message": f"Failed to get trace details: {str(e)}"}
+
+        elif tool_name == 'simulate_error':
+            error_type = args.get('error_type', '500')
+            try:
+                response = requests.post(
+                    f"{APP_URL}/simulate/error",
+                    json={"error_type": error_type},
+                    timeout=15
+                )
+                data = response.json()
+                return {
+                    "status": "simulated",
+                    "error_type": error_type,
+                    "http_status": response.status_code,
+                    "response": data,
+                    "message": f"Error type '{error_type}' has been simulated. Check Cloud Logs and traces for the generated error entries."
+                }
+            except Exception as e:
+                return {"status": "error", "message": f"Failed to simulate error: {str(e)}"}
+
+        elif tool_name == 'reset_bookings':
+            try:
+                response = requests.post(f"{APP_URL}/resetBookings", timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                return {
+                    "status": "success",
+                    "message": "All bookings have been reset. All 60 seats are now available.",
+                    "response": data
+                }
+            except Exception as e:
+                return {"status": "error", "message": f"Failed to reset bookings: {str(e)}"}
+
+        elif tool_name == 'get_trace_summary':
+            limit = args.get('limit', 50)
+            try:
+                traces_resp = requests.get(f"{APP_URL}/getRecentTraces?limit={limit}", timeout=15)
+                traces_resp.raise_for_status()
+                traces_data = traces_resp.json()
+                traces_list = traces_data.get('traces', [])
+
+                if not traces_list:
+                    return {"status": "success", "message": "No traces found. No user sessions have been recorded yet.", "total_sessions": 0}
+
+                total_sessions = len(traces_list)
+                total_events = sum(t.get('event_count', 0) for t in traces_list)
+                avg_events = round(total_events / total_sessions, 1) if total_sessions > 0 else 0
+
+                # Calculate durations
+                durations = []
+                for t in traces_list:
+                    started = t.get('started_at')
+                    ended = t.get('ended_at')
+                    if started and ended:
+                        try:
+                            start_dt = datetime.fromisoformat(started)
+                            end_dt = datetime.fromisoformat(ended)
+                            dur_ms = (end_dt - start_dt).total_seconds() * 1000
+                            durations.append(dur_ms)
+                        except:
+                            pass
+                avg_duration_ms = round(sum(durations) / len(durations), 1) if durations else 0
+
+                # Count by status
+                success_count = sum(1 for t in traces_list if t.get('overall_status') == 'success')
+                error_count = total_sessions - success_count
+                error_rate = round((error_count / total_sessions) * 100, 1) if total_sessions > 0 else 0
+
+                # Count bookings
+                booking_sessions = 0
+                flow_counts = {}
+                for t in traces_list:
+                    actions = t.get('actions', [])
+                    actions_str = ','.join(sorted(actions)) if isinstance(actions, list) else str(actions)
+                    flow_counts[actions_str] = flow_counts.get(actions_str, 0) + 1
+                    if isinstance(actions, list):
+                        if 'BOOKING_CONFIRMED' in actions:
+                            booking_sessions += 1
+                    elif 'BOOKING_CONFIRMED' in str(actions):
+                        booking_sessions += 1
+
+                # Top flows
+                top_flows = sorted(flow_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+                top_flows_list = [{"flow": f, "count": c} for f, c in top_flows]
+
+                # Unique users (by IP)
+                unique_ips = len(set(t.get('user_ip', '') for t in traces_list if t.get('user_ip')))
+
+                return {
+                    "status": "success",
+                    "summary": {
+                        "total_sessions": total_sessions,
+                        "total_events": total_events,
+                        "avg_events_per_session": avg_events,
+                        "avg_session_duration_ms": avg_duration_ms,
+                        "success_rate": f"{round(100 - error_rate, 1)}%",
+                        "error_rate": f"{error_rate}%",
+                        "booking_sessions": booking_sessions,
+                        "booking_rate": f"{round((booking_sessions / total_sessions) * 100, 1)}%" if total_sessions > 0 else "0%",
+                        "unique_users_by_ip": unique_ips
+                    },
+                    "top_user_flows": top_flows_list,
+                    "message": f"Analyzed {total_sessions} sessions with {total_events} total events. {booking_sessions} resulted in bookings. Error rate: {error_rate}%."
+                }
+            except Exception as e:
+                return {"status": "error", "message": f"Failed to get trace summary: {str(e)}"}
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}

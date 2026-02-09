@@ -368,36 +368,33 @@ def _monitoring_loop():
     global _monitoring_state
     logger.info("Monitoring loop started — first check already done, sleeping before next cycle")
 
-    # Determine self-ping URL to keep Code Engine instance alive
-    _self_url = os.environ.get('CE_APP', '')  # Code Engine sets this
-    if not _self_url:
-        _self_url = os.environ.get('APP_URL_SELF', 'http://localhost:8080')
-    if _self_url and not _self_url.startswith('http'):
-        _self_url = 'https://' + _self_url
+    # Self-ping URL: use localhost to keep Gunicorn worker alive (min-scale=1 prevents Code Engine scale-to-zero)
+    _self_port = os.environ.get('PORT', '8080')
+    _self_url = 'http://localhost:{}'.format(_self_port)
 
-    while _monitoring_state['active']:
-        # Sleep FIRST — the initial check was already done by start_monitoring
-        # Self-ping every 30 seconds during sleep to prevent Code Engine scale-to-zero
-        elapsed = 0
-        ping_interval = 30  # seconds between keep-alive pings
-        while elapsed < _monitoring_state['interval_seconds'] and _monitoring_state['active']:
-            sleep_chunk = min(ping_interval, _monitoring_state['interval_seconds'] - elapsed)
-            for _ in range(sleep_chunk):
-                if not _monitoring_state['active']:
-                    break
-                time_module.sleep(1)
-            elapsed += sleep_chunk
-            # Self-ping to keep the instance alive
-            if _monitoring_state['active'] and _self_url:
-                try:
-                    requests.get(_self_url + '/health', timeout=5)
-                    logger.debug("Self-ping keep-alive sent")
-                except Exception:
-                    pass  # Best effort
+    try:
+        while _monitoring_state['active']:
+            # Sleep FIRST — the initial check was already done by start_monitoring
+            # Self-ping every 30 seconds during sleep to prevent Code Engine scale-to-zero
+            elapsed = 0
+            ping_interval = 30  # seconds between keep-alive pings
+            while elapsed < _monitoring_state['interval_seconds'] and _monitoring_state['active']:
+                sleep_chunk = min(ping_interval, _monitoring_state['interval_seconds'] - elapsed)
+                for _ in range(sleep_chunk):
+                    if not _monitoring_state['active']:
+                        break
+                    time_module.sleep(1)
+                elapsed += sleep_chunk
+                # Self-ping to keep the instance alive
+                if _monitoring_state['active']:
+                    try:
+                        requests.get(_self_url + '/health', timeout=5)
+                    except Exception:
+                        pass  # Best effort
 
-        # After waking up, check if we should still be running
-        if not _monitoring_state['active']:
-            break
+            # After waking up, check if we should still be running
+            if not _monitoring_state['active']:
+                break
 
         try:
             result = _run_single_health_check()
@@ -420,6 +417,41 @@ def _monitoring_loop():
                 _send_teams_notification(webhook_url, result)
         except Exception as e:
             logger.error(f"Monitoring check error: {e}")
+
+    except Exception as fatal_err:
+        logger.error(f"Monitoring loop CRASHED: {fatal_err}")
+        _monitoring_state['active'] = False
+        # Notify Teams that monitoring crashed
+        webhook_url = _monitoring_state.get('teams_webhook_url', '')
+        if webhook_url:
+            try:
+                crash_card = {
+                    "type": "message",
+                    "attachments": [{
+                        "contentType": "application/vnd.microsoft.card.adaptive",
+                        "content": {
+                            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                            "type": "AdaptiveCard",
+                            "version": "1.4",
+                            "body": [{
+                                "type": "TextBlock",
+                                "size": "Large",
+                                "weight": "Bolder",
+                                "text": "💥 SRE Monitoring CRASHED",
+                                "wrap": True,
+                                "color": "Attention"
+                            }, {
+                                "type": "TextBlock",
+                                "text": "Error: {}. Please restart monitoring.".format(str(fatal_err)[:300]),
+                                "wrap": True
+                            }]
+                        }
+                    }]
+                }
+                requests.post(webhook_url, json=crash_card, timeout=10)
+            except Exception:
+                pass
+        return
 
     # Send a final "monitoring stopped" message to Teams
     webhook_url = _monitoring_state.get('teams_webhook_url', '')
@@ -1251,7 +1283,7 @@ def start_monitoring():
     if teams_webhook:
         _send_teams_notification(teams_webhook, first_result)
 
-    t = threading.Thread(target=_monitoring_loop, daemon=True, name='sre-monitor')
+    t = threading.Thread(target=_monitoring_loop, daemon=False, name='sre-monitor')
     t.start()
     _monitoring_state['thread'] = t
 
@@ -2272,7 +2304,7 @@ def execute_mcp_tool(tool_name, args):
             if teams_webhook:
                 _send_teams_notification(teams_webhook, first_result)
 
-            t = threading.Thread(target=_monitoring_loop, daemon=True, name='sre-monitor')
+            t = threading.Thread(target=_monitoring_loop, daemon=False, name='sre-monitor')
             t.start()
             _monitoring_state['thread'] = t
 

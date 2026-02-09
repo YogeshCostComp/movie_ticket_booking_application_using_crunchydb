@@ -102,21 +102,34 @@ def after_request_trace(response):
             action = 'BOOK_SEATS'
             try:
                 user_data = json.loads(request.form.get('userdetails', '{}'))
-                details = f"User: {user_data.get('name', 'N/A')}, Phone: {user_data.get('number', 'N/A')}"
+                seat_data = json.loads(request.form.get('data_seats', '{}'))
+                selected = [k for k, v in seat_data.items() if v == 'reserved']
+                details = f"User: {user_data.get('name', 'N/A')}, Phone: {user_data.get('number', 'N/A')}, Seats: {','.join(sorted(selected))}"
+                if status == 'success':
+                    action = 'BOOKING_CONFIRMED'
+                    details += ' → Stored in DB'
+                else:
+                    action = 'BOOKING_FAILED'
             except:
                 details = 'Booking attempt'
         elif request.path == '/':
-            action = 'PAGE_LOAD_HOME'
+            action = 'USER_OPENED_APP'
+            details = 'User loaded the booking page'
         elif request.path == '/details':
-            action = 'PAGE_LOAD_BOOKINGS'
+            action = 'VIEW_BOOKING_CONFIRMATION'
+            details = 'User viewing booking confirmation page'
         elif request.path == '/get':
-            action = 'FETCH_SEAT_STATUS'
+            action = 'LOAD_SEAT_MAP'
+            details = 'Fetched current seat availability from DB'
         elif request.path == '/getUsersDetails':
-            action = 'FETCH_ALL_BOOKINGS'
+            action = 'VIEW_ALL_BOOKINGS'
+            details = 'User viewed all booking records'
         elif request.path == '/resetBookings':
             action = 'RESET_ALL_BOOKINGS'
+            details = 'All bookings cleared, all seats reset to available'
         elif request.path == '/create':
             action = 'INIT_SEATS_TABLE'
+            details = 'Database tables initialized'
         elif request.path.startswith('/simulate'):
             action = 'SRE_ERROR_SIMULATION'
             details = request.path
@@ -181,7 +194,7 @@ data_seats ={
 
 @app.route("/")
 def home():
-	return render_template("UI.html")
+	return render_template("UI.html", trace_id=g.trace_id)
 
 @app.route("/create")
 def create_table():
@@ -306,7 +319,10 @@ def usersDetails():
 
 @app.route("/details")
 def details():
-	return render_template("Seats.html")
+	# Carry forward trace_id from the booking page if passed via query param
+	trace_id = request.args.get('trace_id', g.trace_id)
+	g.trace_id = trace_id  # Override so middleware uses the same trace_id
+	return render_template("Seats.html", trace_id=trace_id)
 
 @app.route("/get")
 def staus():

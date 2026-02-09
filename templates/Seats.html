@@ -157,9 +157,19 @@
   </div>
 
 <script>
+// ===== Session Trace ID =====
+var SESSION_TRACE_ID = '{{ trace_id }}';
+$.ajaxSetup({
+  beforeSend: function(xhr) {
+    xhr.setRequestHeader('X-Trace-Id', SESSION_TRACE_ID);
+  }
+});
+
 async function getUsers() {
   try {
-    const response = await fetch('/getUsersDetails');
+    const response = await fetch('/getUsersDetails', {
+      headers: { 'X-Trace-Id': SESSION_TRACE_ID }
+    });
     const data = await response.json();
 
     document.getElementById('booking-count').textContent = data.length + ' booking' + (data.length !== 1 ? 's' : '');

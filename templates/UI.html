@@ -543,7 +543,7 @@ function buildSeatGrid() {
 
 // ===== Load seat status from DB =====
 function data_all() {
-  $.get("/get").done(function(data) {
+  $.get("/get?trace_id=" + SESSION_TRACE_ID).done(function(data) {
     var obj = typeof data === 'string' ? JSON.parse(data) : data;
     var avail = 0, blocked = 0;
     for (var x in obj) {
@@ -595,6 +595,7 @@ function reserve_seats() {
   var formData = new FormData();
   formData.append("userdetails", JSON.stringify(userdetails));
   formData.append("data_seats", JSON.stringify(data_seats));
+  formData.append("trace_id", SESSION_TRACE_ID);
 
   var btn = document.getElementById('btn-reserve');
   btn.disabled = true;
@@ -606,7 +607,7 @@ function reserve_seats() {
     success: function(response) {
       if (response.flag == 0) {
         showToast(response.message || "Seats reserved successfully!", "success");
-        setTimeout(function() { location.replace("/details"); }, 1500);
+        setTimeout(function() { location.replace("/details?trace_id=" + SESSION_TRACE_ID); }, 1500);
       } else {
         showToast(response.error || "Reservation failed.", "error");
         btn.disabled = false; btn.textContent = '🎬 Reserve Seats';
@@ -627,7 +628,7 @@ function openBookingsModal() {
   document.getElementById('bookings-body').innerHTML =
     '<div class="no-bookings"><div class="no-bookings-icon">🔄</div><p>Loading...</p></div>';
 
-  $.get("/getUsersDetails").done(function(data) {
+  $.get("/getUsersDetails?trace_id=" + SESSION_TRACE_ID).done(function(data) {
     var bookings = typeof data === 'string' ? JSON.parse(data) : data;
     if (!bookings || bookings.length === 0) {
       document.getElementById('bookings-body').innerHTML =
@@ -653,7 +654,7 @@ function closeConfirm() { document.getElementById('reset-confirm').classList.rem
 function doReset() {
   closeConfirm();
   $.ajax({
-    url: '/resetBookings', type: 'POST',
+    url: '/resetBookings?trace_id=' + SESSION_TRACE_ID, type: 'POST',
     success: function(data) {
       var resp = typeof data === 'string' ? JSON.parse(data) : data;
       showToast(resp.message || "Bookings reset successfully!", "success");
@@ -683,7 +684,7 @@ function simulateError() {
   result.style.color = '#fdcb6e';
   result.innerHTML = '⏳ Generating error...';
   $.ajax({
-    url: '/simulate/error', type: 'POST', contentType: 'application/json',
+    url: '/simulate/error?trace_id=' + SESSION_TRACE_ID, type: 'POST', contentType: 'application/json',
     data: JSON.stringify({error_type: errorType}),
     complete: function(xhr) {
       var resp;

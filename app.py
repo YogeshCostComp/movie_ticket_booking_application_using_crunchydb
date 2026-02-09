@@ -80,12 +80,16 @@ def log_trace(trace_id, action, endpoint=None, method=None, details=None, status
 def before_request_trace():
     """Generate or reuse trace_id for every request and start timer."""
     if request.path == '/':
-        # Fresh session — always generate a new trace_id when user opens the app
-        session['trace_id'] = str(uuid.uuid4())
-    elif 'trace_id' not in session:
-        # Fallback: if session somehow lost, generate new trace_id
-        session['trace_id'] = str(uuid.uuid4())
-    g.trace_id = session['trace_id']
+        # Fresh session — new trace_id when user opens the app
+        g.trace_id = str(uuid.uuid4())
+    else:
+        # Read trace_id from: query param > form data > session > generate new
+        g.trace_id = (request.args.get('trace_id') or
+                      request.form.get('trace_id') or
+                      session.get('trace_id') or
+                      str(uuid.uuid4()))
+    # Always update session as backup
+    session['trace_id'] = g.trace_id
     g.trace_start = time.time()
     g.user_ip = request.remote_addr or 'unknown'
 
@@ -326,6 +330,7 @@ def usersDetails():
 
 @app.route("/details")
 def details():
+	# trace_id comes from query param (set by booking page redirect)
 	return render_template("Seats.html", trace_id=g.trace_id)
 
 @app.route("/get")

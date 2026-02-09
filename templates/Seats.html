@@ -157,12 +157,13 @@
   </div>
 
 <script>
-// ===== Session Trace ID (carried automatically via cookie) =====
-console.log('Seats page - Trace ID: {{ trace_id }}');
+// ===== Session Trace ID (passed via query params on every request) =====
+var SESSION_TRACE_ID = '{{ trace_id }}';
+console.log('Seats page - Trace ID:', SESSION_TRACE_ID);
 
 async function getUsers() {
   try {
-    const response = await fetch('/getUsersDetails');
+    const response = await fetch('/getUsersDetails?trace_id=' + SESSION_TRACE_ID);
     const data = await response.json();
 
     document.getElementById('booking-count').textContent = data.length + ' booking' + (data.length !== 1 ? 's' : '');

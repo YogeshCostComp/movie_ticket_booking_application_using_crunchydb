@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, g
+from flask import Flask, render_template, request, jsonify, g, session
 import json
 import psycopg2
 import psycopg2.errorcodes
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["files"] = "."
+app.secret_key = os.environ.get('SECRET_KEY', 'cine-book-trace-secret-key-2024')
 
 # Database configuration from environment variables
 DB_HOST = os.environ.get('DB_HOST', '127.0.0.1')
@@ -80,10 +81,11 @@ def before_request_trace():
     """Generate or reuse trace_id for every request and start timer."""
     if request.path == '/':
         # Fresh session — always generate a new trace_id when user opens the app
-        g.trace_id = str(uuid.uuid4())
-    else:
-        # Reuse trace_id from cookie (auto-sent by browser) → header → fallback to new
-        g.trace_id = request.cookies.get('X-Trace-Id') or request.headers.get('X-Trace-Id') or str(uuid.uuid4())
+        session['trace_id'] = str(uuid.uuid4())
+    elif 'trace_id' not in session:
+        # Fallback: if session somehow lost, generate new trace_id
+        session['trace_id'] = str(uuid.uuid4())
+    g.trace_id = session['trace_id']
     g.trace_start = time.time()
     g.user_ip = request.remote_addr or 'unknown'
 
@@ -92,8 +94,7 @@ def after_request_trace(response):
     """Log the completed request as a trace entry."""
     trace_id = getattr(g, 'trace_id', 'unknown')
 
-    # Always set trace cookie + header so browser sends it on every subsequent request
-    response.set_cookie('X-Trace-Id', trace_id, max_age=3600, httponly=False, samesite='Lax')
+    # Add trace_id to response header for debugging/correlation
     response.headers['X-Trace-Id'] = trace_id
 
     # Skip health checks, static files, and trace endpoints from logging

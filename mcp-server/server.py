@@ -285,32 +285,47 @@ def _run_single_health_check():
     end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
     logs_scanned = False
 
-    # Error logs - use severity-based filtering (5=ERROR, 6=CRITICAL)
+    # Fetch recent logs and filter in Python (DataPrime field filters don't work for Code Engine log structure)
     try:
-        error_query = "source logs | filter $d.severity == 5 || $d.severity == 6 | limit 20"
-        error_logs = query_cloud_logs(error_query, start_date=start_date, end_date=end_date, limit=20)
+        all_logs_query = "source logs | limit 200"
+        all_logs = query_cloud_logs(all_logs_query, start_date=start_date, end_date=end_date, limit=200)
         logs_scanned = True
-        if isinstance(error_logs, list) and error_logs:
-            result['error_logs'] = error_logs
-            result['issues_found'] = True
-            result['issue_summary'].append("{} error log(s) detected in last 5 minutes".format(len(error_logs)))
-    except Exception as e:
-        logger.warning(f"Monitoring: error log query failed: {e}")
-        result['logs_scan_error'] = str(e)
 
-    # Warning logs - use severity-based filtering (4=WARNING)
-    try:
-        warning_query = "source logs | filter $d.severity == 4 | limit 20"
-        warning_logs = query_cloud_logs(warning_query, start_date=start_date, end_date=end_date, limit=20)
-        logs_scanned = True
-        if isinstance(warning_logs, list) and warning_logs:
-            result['warning_logs'] = warning_logs
-            result['issues_found'] = True
-            result['issue_summary'].append("{} warning log(s) detected in last 5 minutes".format(len(warning_logs)))
+        if isinstance(all_logs, list):
+            error_keywords = ('error', 'exception', 'failed', 'critical', 'fatal', 'crash', 'simulated', 'traceback')
+            warning_keywords = ('warning', 'warn', 'deprecated')
+            # Exclude noise from build/deploy logs
+            noise_keywords = ('pip', 'gunicorn', 'docker', 'sha256', 'COPY', 'pushing', 'Booting worker', 'Worker exiting', 'Starting gunicorn', 'Listening at')
+
+            for log in all_logs:
+                msg = log.get('message', '').strip()
+                sev = log.get('severity', '').upper()
+                if not msg:
+                    continue
+                # Skip build/deploy noise
+                if any(n in msg for n in noise_keywords):
+                    continue
+
+                msg_lower = msg.lower()
+                if sev in ('ERROR', 'CRITICAL', 'FATAL') or any(kw in msg_lower for kw in error_keywords):
+                    result['error_logs'].append(log)
+                elif sev == 'WARNING' or any(kw in msg_lower for kw in warning_keywords):
+                    result['warning_logs'].append(log)
+
+            # Limit to 20 entries each
+            result['error_logs'] = result['error_logs'][:20]
+            result['warning_logs'] = result['warning_logs'][:20]
+
+            if result['error_logs']:
+                result['issues_found'] = True
+                result['issue_summary'].append("{} error log(s) detected in last 5 minutes".format(len(result['error_logs'])))
+            if result['warning_logs']:
+                result['issues_found'] = True
+                result['issue_summary'].append("{} warning log(s) detected in last 5 minutes".format(len(result['warning_logs'])))
+
     except Exception as e:
-        logger.warning(f"Monitoring: warning log query failed: {e}")
-        if not result['logs_scan_error']:
-            result['logs_scan_error'] = str(e)
+        logger.warning(f"Monitoring: log scan failed: {e}")
+        result['logs_scan_error'] = str(e)
 
     result['logs_scanned'] = logs_scanned
 
@@ -1085,13 +1100,25 @@ def get_error_logs():
         start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
         end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
         
-        # Filter for error/critical logs by severity (5=ERROR, 6=CRITICAL)
-        query = f"source logs | filter $d.severity == 5 || $d.severity == 6 | limit {limit}"
-        logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
+        # Fetch all logs then filter in Python for errors (DataPrime field filters don't work for Code Engine logs)
+        query = "source logs | limit {}".format(limit * 4)
+        all_logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit * 4)
+        
+        error_keywords = ('error', 'exception', 'failed', 'critical', 'fatal', 'crash', 'simulated', 'traceback')
+        noise_keywords = ('pip', 'gunicorn', 'docker', 'sha256', 'COPY', 'pushing', 'Booting worker', 'Worker exiting', 'Starting gunicorn', 'Listening at')
+        error_logs = []
+        for log in (all_logs or []):
+            msg = log.get('message', '')
+            sev = log.get('severity', '').upper()
+            if any(n in msg for n in noise_keywords):
+                continue
+            if sev in ('ERROR', 'CRITICAL', 'FATAL') or any(kw in msg.lower() for kw in error_keywords):
+                error_logs.append(log)
+        logs = error_logs[:limit]
         
         return jsonify({
             "status": "success",
-            "query": query,
+            "query": "error/critical log filter",
             "time_range": f"Last {hours} hour(s)",
             "logs": logs
         })

@@ -285,9 +285,9 @@ def _run_single_health_check():
     end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
     logs_scanned = False
 
-    # Error logs - use same proven query format as get_error_logs
+    # Error logs - use severity-based filtering (5=ERROR, 6=CRITICAL)
     try:
-        error_query = "source logs | filter $d.message.message ~ /error|Error|ERROR|exception|Exception|failed|Failed|SIMULATED/ | limit 20"
+        error_query = "source logs | filter $d.severity == 5 || $d.severity == 6 | limit 20"
         error_logs = query_cloud_logs(error_query, start_date=start_date, end_date=end_date, limit=20)
         logs_scanned = True
         if isinstance(error_logs, list) and error_logs:
@@ -298,9 +298,9 @@ def _run_single_health_check():
         logger.warning(f"Monitoring: error log query failed: {e}")
         result['logs_scan_error'] = str(e)
 
-    # Warning logs
+    # Warning logs - use severity-based filtering (4=WARNING)
     try:
-        warning_query = "source logs | filter $d.message.message ~ /warning|Warning|WARNING/ | limit 20"
+        warning_query = "source logs | filter $d.severity == 4 | limit 20"
         warning_logs = query_cloud_logs(warning_query, start_date=start_date, end_date=end_date, limit=20)
         logs_scanned = True
         if isinstance(warning_logs, list) and warning_logs:
@@ -1032,8 +1032,8 @@ def get_error_logs():
         start_date = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
         end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
         
-        # Filter for error/exception logs from all apps (runtime + build)
-        query = f"source logs | filter $d.message.message ~ /error|Error|ERROR|exception|Exception|failed|Failed|SIMULATED/ | limit {limit}"
+        # Filter for error/critical logs by severity (5=ERROR, 6=CRITICAL)
+        query = f"source logs | filter $d.severity == 5 || $d.severity == 6 | limit {limit}"
         logs = query_cloud_logs(query, start_date=start_date, end_date=end_date, limit=limit)
         
         return jsonify({

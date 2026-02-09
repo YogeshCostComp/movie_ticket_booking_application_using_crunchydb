@@ -396,27 +396,27 @@ def _monitoring_loop():
             if not _monitoring_state['active']:
                 break
 
-        try:
-            result = _run_single_health_check()
-            _monitoring_state['last_check_at'] = datetime.utcnow().isoformat()
-            _monitoring_state['check_count'] += 1
-            _monitoring_state['latest_result'] = result
-            _monitoring_state['history'].append(result)
-            # Trim history
-            if len(_monitoring_state['history']) > _monitoring_state['max_history']:
-                _monitoring_state['history'] = _monitoring_state['history'][-_monitoring_state['max_history']:]
+            try:
+                result = _run_single_health_check()
+                _monitoring_state['last_check_at'] = datetime.utcnow().isoformat()
+                _monitoring_state['check_count'] += 1
+                _monitoring_state['latest_result'] = result
+                _monitoring_state['history'].append(result)
+                # Trim history
+                if len(_monitoring_state['history']) > _monitoring_state['max_history']:
+                    _monitoring_state['history'] = _monitoring_state['history'][-_monitoring_state['max_history']:]
 
-            if result.get('issues_found'):
-                logger.warning(f"Monitoring check #{_monitoring_state['check_count']}: Issues found — {result.get('issue_summary')}")
-            else:
-                logger.info(f"Monitoring check #{_monitoring_state['check_count']}: All healthy")
+                if result.get('issues_found'):
+                    logger.warning(f"Monitoring check #{_monitoring_state['check_count']}: Issues found — {result.get('issue_summary')}")
+                else:
+                    logger.info(f"Monitoring check #{_monitoring_state['check_count']}: All healthy")
 
-            # Send Teams notification every check cycle
-            webhook_url = _monitoring_state.get('teams_webhook_url', '')
-            if webhook_url:
-                _send_teams_notification(webhook_url, result)
-        except Exception as e:
-            logger.error(f"Monitoring check error: {e}")
+                # Send Teams notification every check cycle
+                webhook_url = _monitoring_state.get('teams_webhook_url', '')
+                if webhook_url:
+                    _send_teams_notification(webhook_url, result)
+            except Exception as e:
+                logger.error(f"Monitoring check error: {e}")
 
     except Exception as fatal_err:
         logger.error(f"Monitoring loop CRASHED: {fatal_err}")

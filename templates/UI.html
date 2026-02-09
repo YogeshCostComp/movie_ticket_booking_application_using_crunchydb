@@ -482,15 +482,9 @@
   <div class="toast" id="toast"></div>
 
 <script>
-// ===== Session Trace ID (shared across all requests in this session) =====
+// ===== Session Trace ID (carried automatically via cookie) =====
 var SESSION_TRACE_ID = '{{ trace_id }}';
-
-// Set up jQuery to send trace_id header on every AJAX request
-$.ajaxSetup({
-  beforeSend: function(xhr) {
-    xhr.setRequestHeader('X-Trace-Id', SESSION_TRACE_ID);
-  }
-});
+console.log('Session Trace ID:', SESSION_TRACE_ID);
 
 // ===== Seat Data =====
 var data_seats = {};
@@ -612,7 +606,7 @@ function reserve_seats() {
     success: function(response) {
       if (response.flag == 0) {
         showToast(response.message || "Seats reserved successfully!", "success");
-        setTimeout(function() { location.replace("/details?trace_id=" + SESSION_TRACE_ID); }, 1500);
+        setTimeout(function() { location.replace("/details"); }, 1500);
       } else {
         showToast(response.error || "Reservation failed.", "error");
         btn.disabled = false; btn.textContent = '🎬 Reserve Seats';

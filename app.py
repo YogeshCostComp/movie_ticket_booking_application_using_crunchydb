@@ -78,22 +78,31 @@ def log_trace(trace_id, action, endpoint=None, method=None, details=None, status
 @app.before_request
 def before_request_trace():
     """Generate or reuse trace_id for every request and start timer."""
-    # Get trace_id from header (for correlated requests) or generate new one
-    g.trace_id = request.headers.get('X-Trace-Id', str(uuid.uuid4()))
+    if request.path == '/':
+        # Fresh session — always generate a new trace_id when user opens the app
+        g.trace_id = str(uuid.uuid4())
+    else:
+        # Reuse trace_id from cookie (auto-sent by browser) → header → fallback to new
+        g.trace_id = request.cookies.get('X-Trace-Id') or request.headers.get('X-Trace-Id') or str(uuid.uuid4())
     g.trace_start = time.time()
     g.user_ip = request.remote_addr or 'unknown'
 
 @app.after_request
 def after_request_trace(response):
     """Log the completed request as a trace entry."""
-    # Skip health checks, static files, and trace endpoints from tracing
+    trace_id = getattr(g, 'trace_id', 'unknown')
+
+    # Always set trace cookie + header so browser sends it on every subsequent request
+    response.set_cookie('X-Trace-Id', trace_id, max_age=3600, httponly=False, samesite='Lax')
+    response.headers['X-Trace-Id'] = trace_id
+
+    # Skip health checks, static files, and trace endpoints from logging
     skip_endpoints = ['/health', '/favicon.ico', '/getRecentTraces']
     if request.path in skip_endpoints or request.path.startswith('/getTraceDetails'):
         return response
 
     try:
         duration_ms = round((time.time() - g.trace_start) * 1000, 2)
-        trace_id = getattr(g, 'trace_id', 'unknown')
         status = 'success' if response.status_code < 400 else 'error'
 
         action = f"{request.method} {request.path}"
@@ -144,9 +153,6 @@ def after_request_trace(response):
             duration_ms=duration_ms,
             user_ip=getattr(g, 'user_ip', 'unknown')
         )
-
-        # Add trace_id to response headers for client correlation
-        response.headers['X-Trace-Id'] = trace_id
     except Exception as e:
         logger.error(f"Tracing after_request error: {e}")
 
@@ -319,10 +325,7 @@ def usersDetails():
 
 @app.route("/details")
 def details():
-	# Carry forward trace_id from the booking page if passed via query param
-	trace_id = request.args.get('trace_id', g.trace_id)
-	g.trace_id = trace_id  # Override so middleware uses the same trace_id
-	return render_template("Seats.html", trace_id=trace_id)
+	return render_template("Seats.html", trace_id=g.trace_id)
 
 @app.route("/get")
 def staus():

@@ -72,6 +72,16 @@ def _send_teams_notification(webhook_url, result):
         warning_count = len(result.get('warning_logs', []))
         issues = result.get('issue_summary', [])
         recommendation = result.get('recommendation')
+        logs_scanned = result.get('logs_scanned', False)
+        logs_scan_error = result.get('logs_scan_error')
+
+        # Log scan status text
+        if logs_scanned and not logs_scan_error:
+            log_status = "✅ Scanned (no issues)" if error_count == 0 and warning_count == 0 else "⚠️ Issues found"
+        elif logs_scan_error:
+            log_status = "❌ Scan failed"
+        else:
+            log_status = "⏳ Not scanned"
 
         # Color based on status
         if overall == 'HEALTHY':
@@ -136,6 +146,7 @@ def _send_teams_notification(webhook_url, result):
                             {
                                 "type": "FactSet",
                                 "facts": [
+                                    {"title": "Log Scan", "value": log_status},
                                     {"title": "Error Logs", "value": str(error_count)},
                                     {"title": "Warning Logs", "value": str(warning_count)},
                                     {"title": "Check #", "value": str(_monitoring_state.get('check_count', 0))}
@@ -224,6 +235,8 @@ def _run_single_health_check():
         'db_health': None,
         'error_logs': [],
         'warning_logs': [],
+        'logs_scanned': False,
+        'logs_scan_error': None,
         'issues_found': False,
         'issue_summary': [],
         'recommendation': None,
@@ -267,37 +280,48 @@ def _run_single_health_check():
         result['issues_found'] = True
         result['issue_summary'].append(f'Database health check failed: {e}')
 
-    # --- Error / Warning logs (last 3 minutes window to overlap with interval) ---
-    start_date = (datetime.utcnow() - timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    # --- Error / Warning logs (scan last 5 minutes to ensure overlap with check interval) ---
+    start_date = (datetime.utcnow() - timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
     end_date = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    logs_scanned = False
 
     # Error logs - use same proven query format as get_error_logs
     try:
         error_query = "source logs | filter $d.message.message ~ /error|Error|ERROR|exception|Exception|failed|Failed|SIMULATED/ | limit 20"
         error_logs = query_cloud_logs(error_query, start_date=start_date, end_date=end_date, limit=20)
+        logs_scanned = True
         if isinstance(error_logs, list) and error_logs:
             result['error_logs'] = error_logs
             result['issues_found'] = True
-            result['issue_summary'].append(f"{len(error_logs)} error log(s) detected in last 3 minutes")
+            result['issue_summary'].append("{} error log(s) detected in last 5 minutes".format(len(error_logs)))
     except Exception as e:
         logger.warning(f"Monitoring: error log query failed: {e}")
+        result['logs_scan_error'] = str(e)
 
     # Warning logs
     try:
         warning_query = "source logs | filter $d.message.message ~ /warning|Warning|WARNING/ | limit 20"
         warning_logs = query_cloud_logs(warning_query, start_date=start_date, end_date=end_date, limit=20)
+        logs_scanned = True
         if isinstance(warning_logs, list) and warning_logs:
             result['warning_logs'] = warning_logs
             result['issues_found'] = True
-            result['issue_summary'].append(f"{len(warning_logs)} warning log(s) detected in last 3 minutes")
+            result['issue_summary'].append("{} warning log(s) detected in last 5 minutes".format(len(warning_logs)))
     except Exception as e:
         logger.warning(f"Monitoring: warning log query failed: {e}")
+        if not result['logs_scan_error']:
+            result['logs_scan_error'] = str(e)
+
+    result['logs_scanned'] = logs_scanned
 
     # --- Recommendation ---
     if not result['issues_found']:
         result['recommendation'] = None
         result['overall_status'] = 'HEALTHY'
-        result['message'] = '✅ Everything is healthy. App, database, and logs are all clean.'
+        if result['logs_scanned']:
+            result['message'] = '✅ Everything is healthy. App, database, and logs are all clean.'
+        else:
+            result['message'] = '✅ App and database are healthy. Log scan was skipped (API unavailable).'
     else:
         app_down = result['app_health'].get('status') in ('critical', 'error', 'unhealthy')
         db_down = result['db_health'].get('status') in ('error', 'unhealthy')

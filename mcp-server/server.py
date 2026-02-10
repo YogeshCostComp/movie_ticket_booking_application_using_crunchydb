@@ -54,6 +54,21 @@ _monitoring_state = {
     'teams_webhook_url': '',  # Microsoft Teams webhook for notifications
 }
 
+# ============== Runbook Monitoring State (with auto-restart) ==============
+_runbook_monitoring_state = {
+    'active': False,
+    'thread': None,
+    'interval_seconds': 300,  # 5 minutes default
+    'started_at': None,
+    'last_check_at': None,
+    'check_count': 0,
+    'restart_count': 0,
+    'latest_result': None,
+    'history': [],
+    'max_history': 50,
+    'teams_webhook_url': '',
+}
+
 
 def _send_teams_notification(webhook_url, result):
     """Send a monitoring result as a Microsoft Teams Adaptive Card via webhook."""
@@ -501,6 +516,339 @@ def _monitoring_loop():
     logger.info("Monitoring loop stopped")
 
 
+def _send_runbook_teams_event(webhook_url, event_type, details=None):
+    """Send a runbook lifecycle event (started, error detected, restarting, restart complete, stopped) to Teams."""
+    if not webhook_url:
+        return
+
+    timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+    check_num = _runbook_monitoring_state.get('check_count', 0)
+    restart_num = _runbook_monitoring_state.get('restart_count', 0)
+
+    events = {
+        'started': {
+            'emoji': '📒',
+            'title': '📒 Runbook Monitoring — STARTED',
+            'color': 'Good',
+            'text': 'Runbook monitoring (RB-SRE-001) has been activated. The system will continuously monitor app health, database health, and error logs. If errors are detected, the application will be **automatically restarted**.'
+        },
+        'healthy': {
+            'emoji': '✅',
+            'title': '✅ Runbook Monitor — HEALTHY',
+            'color': 'Good',
+            'text': 'All systems healthy. App, database, and logs are clean.'
+        },
+        'error_detected': {
+            'emoji': '🚨',
+            'title': '🚨 Runbook Monitor — ERROR DETECTED',
+            'color': 'Attention',
+            'text': '**Errors detected in monitoring scan!** Following the runbook (RB-SRE-001), the system will now **automatically restart** the application instance to remediate.'
+        },
+        'restarting': {
+            'emoji': '🔄',
+            'title': '🔄 Runbook Monitor — RESTARTING APP',
+            'color': 'Warning',
+            'text': 'Application restart initiated per runbook procedure. Scaling down to 0, then back up...'
+        },
+        'restart_complete': {
+            'emoji': '✅',
+            'title': '✅ Runbook Monitor — RESTART COMPLETED',
+            'color': 'Good',
+            'text': 'Application has been **successfully restarted**. Monitoring will continue on the next cycle.'
+        },
+        'restart_failed': {
+            'emoji': '❌',
+            'title': '❌ Runbook Monitor — RESTART FAILED',
+            'color': 'Attention',
+            'text': 'Application restart **FAILED**. Manual intervention required. Please check the SRE Agent.'
+        },
+        'stopped': {
+            'emoji': '🛑',
+            'title': '🛑 Runbook Monitoring — STOPPED',
+            'color': 'Default',
+            'text': f'Runbook monitoring stopped. Completed {check_num} check(s), {restart_num} restart(s).'
+        }
+    }
+
+    evt = events.get(event_type, {'emoji': 'ℹ️', 'title': event_type, 'color': 'Default', 'text': ''})
+
+    body = [
+        {
+            "type": "TextBlock",
+            "size": "Large",
+            "weight": "Bolder",
+            "text": evt['title'],
+            "wrap": True,
+            "color": evt['color']
+        },
+        {
+            "type": "TextBlock",
+            "text": f"🕐 {timestamp}",
+            "isSubtle": True,
+            "spacing": "None"
+        },
+        {
+            "type": "TextBlock",
+            "text": evt['text'],
+            "wrap": True
+        },
+        {
+            "type": "FactSet",
+            "facts": [
+                {"title": "Runbook", "value": "RB-SRE-001"},
+                {"title": "Check #", "value": str(check_num)},
+                {"title": "Restarts", "value": str(restart_num)}
+            ]
+        }
+    ]
+
+    # Add health details for healthy/error_detected events
+    if details and event_type in ('healthy', 'error_detected'):
+        result = details
+        app_status = result.get('app_health', {}).get('status', 'unknown')
+        db_status = result.get('db_health', {}).get('status', 'unknown')
+        app_rt = result.get('app_health', {}).get('response_time_ms', 'N/A')
+        db_rt = result.get('db_health', {}).get('response_time_ms', 'N/A')
+        error_count = len(result.get('error_logs', []))
+        warning_count = len(result.get('warning_logs', []))
+
+        body.insert(2, {
+            "type": "ColumnSet",
+            "columns": [
+                {
+                    "type": "Column",
+                    "width": "stretch",
+                    "items": [
+                        {"type": "TextBlock", "text": "**App Health**", "wrap": True},
+                        {"type": "TextBlock", "text": "{} {} ({} ms)".format("✅" if app_status == "healthy" else "❌", app_status.upper(), app_rt), "wrap": True}
+                    ]
+                },
+                {
+                    "type": "Column",
+                    "width": "stretch",
+                    "items": [
+                        {"type": "TextBlock", "text": "**Database**", "wrap": True},
+                        {"type": "TextBlock", "text": "{} {} ({} ms)".format("✅" if db_status == "healthy" else "❌", db_status.upper(), db_rt), "wrap": True}
+                    ]
+                }
+            ]
+        })
+
+        # Add error log facts
+        body.append({
+            "type": "FactSet",
+            "facts": [
+                {"title": "Error Logs", "value": str(error_count)},
+                {"title": "Warning Logs", "value": str(warning_count)}
+            ]
+        })
+
+        # Add issue summary
+        issues = result.get('issue_summary', [])
+        if issues:
+            issues_text = '\n\n'.join(f'• {s}' for s in issues)
+            body.append({
+                "type": "TextBlock",
+                "text": f"**Issues:**\n\n{issues_text}",
+                "wrap": True,
+                "color": "Attention"
+            })
+
+        # Add error log samples
+        error_logs = result.get('error_logs', [])
+        if error_logs:
+            sample_msgs = []
+            for log in error_logs[:5]:
+                msg = log.get('message', str(log)) if isinstance(log, dict) else str(log)
+                sample_msgs.append("• {}".format(msg[:200]))
+            body.append({
+                "type": "TextBlock",
+                "text": "**Error Log Samples:**\n\n" + "\n\n".join(sample_msgs),
+                "wrap": True,
+                "size": "Small"
+            })
+
+    # Add restart details
+    if details and event_type == 'restart_complete':
+        body.append({
+            "type": "TextBlock",
+            "text": "**Restart Details:**\n\n• App: {}\n\n• Action: {}".format(
+                details.get('app_name', 'movie-ticket-app'),
+                details.get('message', 'Restarted successfully')
+            ),
+            "wrap": True,
+            "color": "Good"
+        })
+
+    if details and event_type == 'restart_failed':
+        body.append({
+            "type": "TextBlock",
+            "text": "**Failure Details:** {}".format(details.get('message', 'Unknown error')),
+            "wrap": True,
+            "color": "Attention"
+        })
+        body.append({
+            "type": "ActionSet",
+            "actions": [{
+                "type": "Action.OpenUrl",
+                "title": "🚀 Open SRE Agent",
+                "url": "https://au-syd.watson-orchestrate.cloud.ibm.com/build/agent/edit/ced30827-2cfe-42c1-bdd0-c785df7a2793"
+            }]
+        })
+
+    card = {
+        "type": "message",
+        "attachments": [{
+            "contentType": "application/vnd.microsoft.card.adaptive",
+            "content": {
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "type": "AdaptiveCard",
+                "version": "1.4",
+                "body": body
+            }
+        }]
+    }
+
+    try:
+        resp = requests.post(webhook_url, json=card, timeout=10)
+        if resp.status_code in (200, 202):
+            logger.info(f"Runbook Teams notification sent: {event_type}")
+        else:
+            logger.warning(f"Runbook Teams webhook returned {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        logger.error(f"Failed to send runbook Teams notification: {e}")
+
+
+def _perform_app_restart():
+    """Perform an app restart via Code Engine scale down/up. Returns result dict."""
+    try:
+        app_info = find_app('movie-ticket')
+        if not app_info:
+            return {"status": "error", "message": "Could not find Movie Ticket App for restart"}
+
+        project_id = app_info['project_id']
+        app_name = app_info['app_name']
+
+        # Scale down to 0
+        stop_result = scale_code_engine_app(project_id, app_name, min_scale=0, max_scale=0)
+        if stop_result.get('status') != 'success':
+            return {"status": "error", "message": f"Failed to stop app: {stop_result.get('message')}"}
+
+        import time
+        time.sleep(5)  # Wait for scale down
+
+        # Scale back up
+        start_result = scale_code_engine_app(project_id, app_name, min_scale=1, max_scale=10)
+        if start_result.get('status') != 'success':
+            return {"status": "error", "message": f"Stopped but failed to start: {start_result.get('message')}"}
+
+        return {
+            "status": "success",
+            "app_name": app_name,
+            "project_id": project_id,
+            "action": "restarted",
+            "message": f"App '{app_name}' has been restarted successfully"
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Restart exception: {str(e)}"}
+
+
+def _runbook_monitoring_loop():
+    """Background thread for runbook monitoring: monitor → detect errors → auto-restart → notify Teams."""
+    global _runbook_monitoring_state
+    logger.info("Runbook monitoring loop started")
+
+    _self_port = os.environ.get('PORT', '8080')
+    _self_url = 'http://localhost:{}'.format(_self_port)
+
+    try:
+        while _runbook_monitoring_state['active']:
+            # Sleep first — initial check was done by start_runbook_monitoring
+            elapsed = 0
+            ping_interval = 30
+            while elapsed < _runbook_monitoring_state['interval_seconds'] and _runbook_monitoring_state['active']:
+                sleep_chunk = min(ping_interval, _runbook_monitoring_state['interval_seconds'] - elapsed)
+                for _ in range(sleep_chunk):
+                    if not _runbook_monitoring_state['active']:
+                        break
+                    time_module.sleep(1)
+                elapsed += sleep_chunk
+                if _runbook_monitoring_state['active']:
+                    try:
+                        requests.get(_self_url + '/health', timeout=5)
+                    except Exception:
+                        pass
+
+            if not _runbook_monitoring_state['active']:
+                break
+
+            try:
+                # --- Run health check ---
+                result = _run_single_health_check()
+                _runbook_monitoring_state['last_check_at'] = datetime.utcnow().isoformat()
+                _runbook_monitoring_state['check_count'] += 1
+                _runbook_monitoring_state['latest_result'] = result
+                _runbook_monitoring_state['history'].append(result)
+                if len(_runbook_monitoring_state['history']) > _runbook_monitoring_state['max_history']:
+                    _runbook_monitoring_state['history'] = _runbook_monitoring_state['history'][-_runbook_monitoring_state['max_history']:]
+
+                webhook_url = _runbook_monitoring_state.get('teams_webhook_url', '')
+
+                if result.get('issues_found') and result.get('recommendation') == 'restart':
+                    # ---- ERRORS DETECTED → send notification → restart → send result ----
+                    logger.warning(f"Runbook check #{_runbook_monitoring_state['check_count']}: Errors found — auto-restarting")
+
+                    # 1. Notify: errors detected, going to restart
+                    _send_runbook_teams_event(webhook_url, 'error_detected', result)
+
+                    # 2. Notify: restarting now
+                    _send_runbook_teams_event(webhook_url, 'restarting')
+
+                    # 3. Perform restart
+                    restart_result = _perform_app_restart()
+                    _runbook_monitoring_state['restart_count'] += 1
+
+                    if restart_result.get('status') == 'success':
+                        # 4a. Notify: restart completed
+                        logger.info(f"Runbook auto-restart #{_runbook_monitoring_state['restart_count']}: SUCCESS")
+                        _send_runbook_teams_event(webhook_url, 'restart_complete', restart_result)
+
+                        # Wait for app to come back online before next check
+                        time_module.sleep(15)
+                    else:
+                        # 4b. Notify: restart failed
+                        logger.error(f"Runbook auto-restart #{_runbook_monitoring_state['restart_count']}: FAILED — {restart_result.get('message')}")
+                        _send_runbook_teams_event(webhook_url, 'restart_failed', restart_result)
+
+                elif result.get('issues_found') and result.get('recommendation') == 'investigate':
+                    # Warnings — send notification but no restart
+                    logger.warning(f"Runbook check #{_runbook_monitoring_state['check_count']}: Warnings found")
+                    _send_runbook_teams_event(webhook_url, 'error_detected', result)
+                else:
+                    # Everything healthy
+                    logger.info(f"Runbook check #{_runbook_monitoring_state['check_count']}: All healthy")
+                    _send_runbook_teams_event(webhook_url, 'healthy', result)
+
+            except Exception as e:
+                logger.error(f"Runbook monitoring check error: {e}")
+
+    except Exception as fatal_err:
+        logger.error(f"Runbook monitoring loop CRASHED: {fatal_err}")
+        _runbook_monitoring_state['active'] = False
+        webhook_url = _runbook_monitoring_state.get('teams_webhook_url', '')
+        if webhook_url:
+            try:
+                _send_runbook_teams_event(webhook_url, 'stopped', {'message': f'CRASHED: {str(fatal_err)[:300]}'})
+            except Exception:
+                pass
+        return
+
+    # Send stopped notification
+    webhook_url = _runbook_monitoring_state.get('teams_webhook_url', '')
+    _send_runbook_teams_event(webhook_url, 'stopped')
+    logger.info("Runbook monitoring loop stopped")
+
+
 @app.route('/')
 def root():
     """Root endpoint - health check for the MCP server itself"""
@@ -527,7 +875,10 @@ def root():
             '/tools/get_trace_details',
             '/tools/simulate_error',
             '/tools/reset_bookings',
-            '/tools/get_trace_summary'
+            '/tools/get_trace_summary',
+            '/tools/start_runbook_monitoring',
+            '/tools/get_runbook_monitoring_status',
+            '/tools/stop_runbook_monitoring'
         ]
     })
 
@@ -1398,6 +1749,130 @@ def stop_monitoring():
     })
 
 
+# ============== Runbook Monitoring Endpoints (with auto-restart) ==============
+
+@app.route('/tools/start_runbook_monitoring', methods=['GET', 'POST'])
+def start_runbook_monitoring():
+    """Start runbook-based monitoring with auto-restart on errors"""
+    global _runbook_monitoring_state
+
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        interval = data.get('interval_minutes', 5)
+        teams_webhook = data.get('teams_webhook_url', '') or TEAMS_WEBHOOK_URL
+    else:
+        interval = request.args.get('interval_minutes', 5, type=int)
+        teams_webhook = request.args.get('teams_webhook_url', '') or TEAMS_WEBHOOK_URL
+
+    interval = max(1, min(interval, 30))
+
+    if _runbook_monitoring_state['active']:
+        return jsonify({
+            "status": "already_running",
+            "message": f"Runbook monitoring is already active since {_runbook_monitoring_state['started_at']}. "
+                       f"Checks every {_runbook_monitoring_state['interval_seconds'] // 60} minute(s). "
+                       f"Total checks: {_runbook_monitoring_state['check_count']}, Restarts: {_runbook_monitoring_state['restart_count']}.",
+            "latest_result": _runbook_monitoring_state.get('latest_result')
+        })
+
+    # Run immediate first check
+    first_result = _run_single_health_check()
+
+    _runbook_monitoring_state['active'] = True
+    _runbook_monitoring_state['interval_seconds'] = interval * 60
+    _runbook_monitoring_state['started_at'] = datetime.utcnow().isoformat()
+    _runbook_monitoring_state['check_count'] = 1
+    _runbook_monitoring_state['restart_count'] = 0
+    _runbook_monitoring_state['latest_result'] = first_result
+    _runbook_monitoring_state['history'] = [first_result]
+    _runbook_monitoring_state['teams_webhook_url'] = teams_webhook
+
+    # Send "Runbook Monitoring Started" notification to Teams
+    if teams_webhook:
+        _send_runbook_teams_event(teams_webhook, 'started')
+        # Also send the first health check result
+        if first_result.get('issues_found'):
+            _send_runbook_teams_event(teams_webhook, 'error_detected', first_result)
+        else:
+            _send_runbook_teams_event(teams_webhook, 'healthy', first_result)
+
+    t = threading.Thread(target=_runbook_monitoring_loop, daemon=False, name='sre-runbook-monitor')
+    t.start()
+    _runbook_monitoring_state['thread'] = t
+
+    return jsonify({
+        "status": "started",
+        "message": f"📒 Runbook monitoring started (RB-SRE-001)! Health checks every {interval} minute(s). "
+                   f"Auto-restart enabled on error detection. Teams notifications active.",
+        "interval_minutes": interval,
+        "auto_restart": True,
+        "teams_notifications": bool(teams_webhook),
+        "first_check": first_result
+    })
+
+
+@app.route('/tools/get_runbook_monitoring_status', methods=['GET', 'POST'])
+def get_runbook_monitoring_status():
+    """Get runbook monitoring status"""
+    global _runbook_monitoring_state
+
+    if not _runbook_monitoring_state['active']:
+        return jsonify({
+            "status": "inactive",
+            "monitoring_active": False,
+            "message": "Runbook monitoring is not active. Use start_runbook_monitoring to begin."
+        })
+
+    include_history = False
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        include_history = data.get('include_history', False)
+    else:
+        include_history = request.args.get('include_history', 'false').lower() == 'true'
+
+    response = {
+        "status": "active",
+        "monitoring_active": True,
+        "runbook_id": "RB-SRE-001",
+        "auto_restart": True,
+        "started_at": _runbook_monitoring_state['started_at'],
+        "interval_minutes": _runbook_monitoring_state['interval_seconds'] // 60,
+        "total_checks": _runbook_monitoring_state['check_count'],
+        "total_restarts": _runbook_monitoring_state['restart_count'],
+        "last_check_at": _runbook_monitoring_state['last_check_at'],
+        "latest_result": _runbook_monitoring_state.get('latest_result'),
+    }
+
+    if include_history:
+        response['history'] = _runbook_monitoring_state.get('history', [])
+
+    return jsonify(response)
+
+
+@app.route('/tools/stop_runbook_monitoring', methods=['GET', 'POST'])
+def stop_runbook_monitoring():
+    """Stop runbook monitoring"""
+    global _runbook_monitoring_state
+
+    if not _runbook_monitoring_state['active']:
+        return jsonify({
+            "status": "not_running",
+            "message": "Runbook monitoring is not currently active."
+        })
+
+    _runbook_monitoring_state['active'] = False
+    checks_done = _runbook_monitoring_state['check_count']
+    restarts_done = _runbook_monitoring_state['restart_count']
+    started = _runbook_monitoring_state['started_at']
+
+    return jsonify({
+        "status": "stopped",
+        "message": f"🛑 Runbook monitoring stopped. Was running since {started}, completed {checks_done} check(s) and {restarts_done} restart(s).",
+        "total_checks_completed": checks_done,
+        "total_restarts": restarts_done
+    })
+
+
 # ============== Tracing Endpoints ==============
 
 @app.route('/tools/get_recent_traces', methods=['GET', 'POST'])
@@ -1764,6 +2239,49 @@ MCP_TOOLS = [
     {
         "name": "stop_monitoring",
         "description": "Stop continuous monitoring of the Movie Ticket App.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "start_runbook_monitoring",
+        "description": "Start runbook-based monitoring (RB-SRE-001) with automatic app restart on error detection. Sends Teams notifications for: monitoring started, each health check cycle (healthy/error), error detected with auto-restart, restart completed/failed, and monitoring stopped. Use this when the user says 'monitor error log runbook' or 'start runbook monitoring'. Different from start_monitoring which only monitors and notifies without restarting.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "interval_minutes": {
+                    "type": "integer",
+                    "description": "How often to run checks in minutes (default: 5, min: 1, max: 30)",
+                    "default": 5
+                },
+                "teams_webhook_url": {
+                    "type": "string",
+                    "description": "Microsoft Teams incoming webhook URL for notifications. If not provided, uses the TEAMS_WEBHOOK_URL environment variable."
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_runbook_monitoring_status",
+        "description": "Get the current status of runbook monitoring (RB-SRE-001), including total checks, total auto-restarts performed, and latest health check result.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "include_history": {
+                    "type": "boolean",
+                    "description": "Include full history of past checks",
+                    "default": False
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "stop_runbook_monitoring",
+        "description": "Stop runbook-based monitoring (RB-SRE-001). Reports total checks and auto-restarts performed.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -2592,6 +3110,95 @@ def execute_mcp_tool(tool_name, args):
                 "status": "stopped",
                 "message": f"🛑 Monitoring stopped. Was running since {started}, completed {checks_done} check(s).",
                 "total_checks_completed": checks_done
+            }
+
+        elif tool_name == 'start_runbook_monitoring':
+            interval = args.get('interval_minutes', 5)
+            interval = max(1, min(interval, 30))
+            teams_webhook = args.get('teams_webhook_url', '') or TEAMS_WEBHOOK_URL
+
+            if _runbook_monitoring_state['active']:
+                return {
+                    "status": "already_running",
+                    "message": f"Runbook monitoring is already active since {_runbook_monitoring_state['started_at']}. "
+                               f"Checks every {_runbook_monitoring_state['interval_seconds'] // 60} minute(s). "
+                               f"Total checks: {_runbook_monitoring_state['check_count']}, Restarts: {_runbook_monitoring_state['restart_count']}.",
+                    "latest_result": _runbook_monitoring_state.get('latest_result')
+                }
+
+            first_result = _run_single_health_check()
+
+            _runbook_monitoring_state['active'] = True
+            _runbook_monitoring_state['interval_seconds'] = interval * 60
+            _runbook_monitoring_state['started_at'] = datetime.utcnow().isoformat()
+            _runbook_monitoring_state['check_count'] = 1
+            _runbook_monitoring_state['restart_count'] = 0
+            _runbook_monitoring_state['latest_result'] = first_result
+            _runbook_monitoring_state['history'] = [first_result]
+            _runbook_monitoring_state['teams_webhook_url'] = teams_webhook
+
+            if teams_webhook:
+                _send_runbook_teams_event(teams_webhook, 'started')
+                if first_result.get('issues_found'):
+                    _send_runbook_teams_event(teams_webhook, 'error_detected', first_result)
+                else:
+                    _send_runbook_teams_event(teams_webhook, 'healthy', first_result)
+
+            t = threading.Thread(target=_runbook_monitoring_loop, daemon=False, name='sre-runbook-monitor')
+            t.start()
+            _runbook_monitoring_state['thread'] = t
+
+            return {
+                "status": "started",
+                "message": f"📒 Runbook monitoring started (RB-SRE-001)! Health checks every {interval} minute(s). "
+                           f"Auto-restart enabled on error detection. Teams notifications active.",
+                "interval_minutes": interval,
+                "auto_restart": True,
+                "teams_notifications": bool(teams_webhook),
+                "first_check": first_result
+            }
+
+        elif tool_name == 'get_runbook_monitoring_status':
+            if not _runbook_monitoring_state['active']:
+                return {
+                    "status": "inactive",
+                    "monitoring_active": False,
+                    "message": "Runbook monitoring is not active. Use start_runbook_monitoring to begin."
+                }
+
+            include_history = args.get('include_history', False)
+            response_data = {
+                "status": "active",
+                "monitoring_active": True,
+                "runbook_id": "RB-SRE-001",
+                "auto_restart": True,
+                "started_at": _runbook_monitoring_state['started_at'],
+                "interval_minutes": _runbook_monitoring_state['interval_seconds'] // 60,
+                "total_checks": _runbook_monitoring_state['check_count'],
+                "total_restarts": _runbook_monitoring_state['restart_count'],
+                "last_check_at": _runbook_monitoring_state['last_check_at'],
+                "latest_result": _runbook_monitoring_state.get('latest_result'),
+            }
+            if include_history:
+                response_data['history'] = _runbook_monitoring_state.get('history', [])
+            return response_data
+
+        elif tool_name == 'stop_runbook_monitoring':
+            if not _runbook_monitoring_state['active']:
+                return {
+                    "status": "not_running",
+                    "message": "Runbook monitoring is not currently active."
+                }
+
+            _runbook_monitoring_state['active'] = False
+            checks_done = _runbook_monitoring_state['check_count']
+            restarts_done = _runbook_monitoring_state['restart_count']
+            started = _runbook_monitoring_state['started_at']
+            return {
+                "status": "stopped",
+                "message": f"🛑 Runbook monitoring stopped. Was running since {started}, completed {checks_done} check(s) and {restarts_done} restart(s).",
+                "total_checks_completed": checks_done,
+                "total_restarts": restarts_done
             }
 
         elif tool_name == 'get_recent_traces':

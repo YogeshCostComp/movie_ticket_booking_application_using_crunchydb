@@ -104,6 +104,26 @@
       width: 100%; height: 100%;
       position: absolute; top: 0; left: 0;
     }
+    .chat-loading {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: 100%; color: #a29bfe;
+      font-size: 14px; gap: 12px;
+    }
+    .chat-loading .spinner {
+      width: 36px; height: 36px; border: 3px solid rgba(162,155,254,0.2);
+      border-top-color: #a29bfe; border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .chat-error {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: 100%; color: #e74c3c;
+      font-size: 14px; text-align: center; padding: 24px; gap: 12px;
+    }
+    .chat-error button {
+      background: #6c5ce7; color: #fff; border: none;
+      padding: 8px 20px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    }
 
     /* ===== Main Layout ===== */
     .main-container {
@@ -490,7 +510,12 @@
       </div><!-- end booking-tab-content -->
 
       <div id="chat-tab-content" class="tab-content">
-        <div id="chat-root"></div>
+        <div id="chat-root">
+          <div class="chat-loading" id="chat-loading">
+            <div class="spinner"></div>
+            <span>Loading SRE Agent...</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -770,6 +795,7 @@ function switchTab(tab) {
 
 // ===== watsonx Orchestrate SRE Agent Chat =====
 function loadChat() {
+  console.log('[SRE Agent] Initializing chat widget...');
   window.wxOConfiguration = {
     orchestrationID: "8180dcb5f0394822b2ad3e48fcd8169f_63514989-f019-4d5f-ad14-37a486ba9981",
     hostURL: "https://au-syd.watson-orchestrate.cloud.ibm.com",
@@ -784,8 +810,41 @@ function loadChat() {
   };
   var s = document.createElement('script');
   s.src = window.wxOConfiguration.hostURL + '/wxochat/wxoLoader.js?embed=true';
-  s.onload = function() { wxoLoader.init(); };
+  s.onload = function() {
+    console.log('[SRE Agent] wxoLoader script loaded, calling init...');
+    try {
+      var result = wxoLoader.init();
+      if (result && result.then) {
+        result.then(function() {
+          console.log('[SRE Agent] Widget initialized successfully');
+        }).catch(function(err) {
+          console.error('[SRE Agent] Init promise rejected:', err);
+          showChatError('Widget initialization failed: ' + err.message);
+        });
+      }
+    } catch(e) {
+      console.error('[SRE Agent] Init error:', e);
+      showChatError('Widget init error: ' + e.message);
+    }
+  };
+  s.onerror = function(e) {
+    console.error('[SRE Agent] Failed to load wxoLoader script:', e);
+    showChatError('Failed to load chat widget script. Check network connectivity.');
+  };
+  // Timeout: if widget doesn't render within 15s, show message
+  setTimeout(function() {
+    var loader = document.getElementById('chat-loading');
+    if (loader) {
+      loader.querySelector('span').textContent = 'Still loading... check browser console for errors.';
+    }
+  }, 15000);
   document.head.appendChild(s);
+}
+
+function showChatError(msg) {
+  var root = document.getElementById('chat-root');
+  root.innerHTML = '<div class="chat-error"><span>⚠️ ' + msg + '</span>' +
+    '<button onclick="chatLoaded=false;loadChat();switchTab(\'chat\')">🔄 Retry</button></div>';
 }
 </script>
 </body>

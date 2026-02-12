@@ -97,46 +97,21 @@
 
   <!-- watsonx Orchestrate SRE Agent — Full-page embed -->
   <script>
-    async function getIdentityToken() {
-      try {
-        var resp = await fetch('/createJWT');
-        if (!resp.ok) throw new Error('JWT fetch failed: ' + resp.status);
-        return await resp.text();
-      } catch(e) {
-        console.error('getIdentityToken error:', e);
-        return null;
+    window.wxOConfiguration = {
+      orchestrationID: "8180dcb5f0394822b2ad3e48fcd8169f_63514989-f019-4d5f-ad14-37a486ba9981",
+      hostURL: "https://au-syd.watson-orchestrate.cloud.ibm.com",
+      rootElementID: "root",
+      deploymentPlatform: "ibmcloud",
+      crn: "crn:v1:bluemix:public:watsonx-orchestrate:au-syd:a/8180dcb5f0394822b2ad3e48fcd8169f:63514989-f019-4d5f-ad14-37a486ba9981::",
+      chatOptions: {
+        agentId: "ced30827-2cfe-42c1-bdd0-c785df7a2793",
+        agentEnvironmentId: "de97e8dd-fe24-44c0-9f04-738fcced87ec"
       }
-    }
-
-    function onChatLoad(instance) {
-      instance.on('identityTokenExpired', async function (event) {
-        var newToken = await getIdentityToken();
-        if (newToken) event.identityToken = newToken;
-      });
-    }
-
-    getIdentityToken().then(function (token) {
-      var config = {
-        orchestrationID: "8180dcb5f0394822b2ad3e48fcd8169f_63514989-f019-4d5f-ad14-37a486ba9981",
-        hostURL: "https://au-syd.watson-orchestrate.cloud.ibm.com",
-        rootElementID: "root",
-        deploymentPlatform: "ibmcloud",
-        layout: "custom",
-        crn: "crn:v1:bluemix:public:watsonx-orchestrate:au-syd:a/8180dcb5f0394822b2ad3e48fcd8169f:63514989-f019-4d5f-ad14-37a486ba9981::",
-        chatOptions: {
-          agentId: "ced30827-2cfe-42c1-bdd0-c785df7a2793",
-          agentEnvironmentId: "de97e8dd-fe24-44c0-9f04-738fcced87ec",
-          onLoad: onChatLoad
-        }
-      };
-      if (token) config.identityToken = token;
-      window.wxOConfiguration = config;
-
-      var script = document.createElement('script');
-      script.src = config.hostURL + '/wxochat/wxoLoader.js?embed=true';
-      script.addEventListener('load', function () { wxoLoader.init(); });
-      document.head.appendChild(script);
-    });
+    };
+    var script = document.createElement('script');
+    script.src = window.wxOConfiguration.hostURL + '/wxochat/wxoLoader.js?embed=true';
+    script.addEventListener('load', function () { wxoLoader.init(); });
+    document.head.appendChild(script);
   </script>
 </body>
 </html>

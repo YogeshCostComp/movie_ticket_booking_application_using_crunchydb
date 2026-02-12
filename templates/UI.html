@@ -72,6 +72,39 @@
     }
     .btn-reset:hover { background: rgba(233,69,96,0.3); transform: translateY(-1px); }
 
+    /* ===== Right Panel Tabs ===== */
+    .panel-tabs {
+      display: flex; gap: 0; margin-bottom: 16px;
+      border-radius: 10px; overflow: hidden;
+      border: 1px solid var(--border); background: var(--bg-secondary);
+    }
+    .panel-tab {
+      flex: 1; padding: 12px 8px; text-align: center;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      border: none; background: transparent;
+      color: var(--text-secondary); transition: all 0.3s;
+      font-family: 'Inter', sans-serif;
+    }
+    .panel-tab:hover { background: rgba(255,255,255,0.03); }
+    .panel-tab.active {
+      background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+      color: #fff;
+    }
+    .panel-tab.active:first-child {
+      background: linear-gradient(135deg, var(--accent), #c0392b);
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    #chat-tab-content {
+      background: var(--bg-card); border-radius: var(--radius);
+      border: 1px solid var(--border); overflow: hidden;
+      height: 560px; position: relative;
+    }
+    #chat-root {
+      width: 100%; height: 100%;
+      position: absolute; top: 0; left: 0;
+    }
+
     /* ===== Main Layout ===== */
     .main-container {
       max-width: 1200px; margin: 0 auto; padding: 32px 24px;
@@ -366,7 +399,6 @@
       <div class="header-actions">
         <button class="btn-header btn-view-bookings" onclick="openBookingsModal()">📋 View Bookings</button>
         <button class="btn-header btn-reset" onclick="confirmReset()">🔄 Reset Bookings</button>
-        <a href="/chat" target="_blank" class="btn-header btn-agent" style="background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:6px;">🤖 SRE Agent</a>
       </div>
     </div>
   </header>
@@ -402,6 +434,12 @@
 
     <!-- Right: Booking Panel -->
     <div class="booking-panel">
+      <div class="panel-tabs">
+        <button class="panel-tab active" onclick="switchTab('booking')">🎫 Booking</button>
+        <button class="panel-tab" onclick="switchTab('chat')">🤖 SRE Agent</button>
+      </div>
+
+      <div id="booking-tab-content" class="tab-content active">
       <div class="panel-card">
         <h3>🎫 Book Your Seats</h3>
         <div class="stats-row">
@@ -448,6 +486,11 @@
         </select>
         <button class="btn-sre" onclick="simulateError()">⚡ Generate Error</button>
         <div id="error-result" class="sre-result"></div>
+      </div>
+      </div><!-- end booking-tab-content -->
+
+      <div id="chat-tab-content" class="tab-content">
+        <div id="chat-root"></div>
       </div>
     </div>
   </div>
@@ -709,6 +752,41 @@ document.addEventListener('click', function(e) {
   if (e.target.id === 'bookings-modal') closeBookingsModal();
   if (e.target.id === 'reset-confirm') closeConfirm();
 });
+
+// ===== Tab Switching =====
+var chatLoaded = false;
+function switchTab(tab) {
+  document.querySelectorAll('.panel-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+  if (tab === 'chat') {
+    document.querySelectorAll('.panel-tab')[1].classList.add('active');
+    document.getElementById('chat-tab-content').classList.add('active');
+    if (!chatLoaded) { loadChat(); chatLoaded = true; }
+  } else {
+    document.querySelectorAll('.panel-tab')[0].classList.add('active');
+    document.getElementById('booking-tab-content').classList.add('active');
+  }
+}
+
+// ===== watsonx Orchestrate SRE Agent Chat =====
+function loadChat() {
+  window.wxOConfiguration = {
+    orchestrationID: "8180dcb5f0394822b2ad3e48fcd8169f_63514989-f019-4d5f-ad14-37a486ba9981",
+    hostURL: "https://au-syd.watson-orchestrate.cloud.ibm.com",
+    rootElementID: "chat-root",
+    deploymentPlatform: "ibmcloud",
+    layout: "custom",
+    crn: "crn:v1:bluemix:public:watsonx-orchestrate:au-syd:a/8180dcb5f0394822b2ad3e48fcd8169f:63514989-f019-4d5f-ad14-37a486ba9981::",
+    chatOptions: {
+      agentId: "ced30827-2cfe-42c1-bdd0-c785df7a2793",
+      agentEnvironmentId: "de97e8dd-fe24-44c0-9f04-738fcced87ec"
+    }
+  };
+  var s = document.createElement('script');
+  s.src = window.wxOConfiguration.hostURL + '/wxochat/wxoLoader.js?embed=true';
+  s.onload = function() { wxoLoader.init(); };
+  document.head.appendChild(s);
+}
 </script>
 </body>
 </html>

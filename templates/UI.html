@@ -23,12 +23,16 @@
     // Handle token refresh when expired
     function onChatLoad(instance) {
       instance.on('identityTokenExpired', async function (event) {
+        console.log('identityTokenExpired fired — refreshing token');
         var newToken = await getIdentityToken();
-        if (newToken) instance.updateAuthToken(newToken);
+        if (newToken) {
+          event.identityToken = newToken;
+          console.log('Token refreshed successfully');
+        }
       });
     }
 
-    // Initialize chat — try with JWT, fall back to no-auth
+    // Initialize chat
     getIdentityToken().then(function (token) {
       var config = {
         orchestrationID: "8180dcb5f0394822b2ad3e48fcd8169f_63514989-f019-4d5f-ad14-37a486ba9981",
@@ -757,5 +761,14 @@ document.addEventListener('click', function(e) {
 });
 </script>
 <div id="root"></div>
+<style>
+  /* Make watsonx Orchestrate chat widget larger */
+  #root [class*="WatsonxChat"], #root iframe,
+  #root > div {
+    width: 440px !important;
+    height: 620px !important;
+    max-height: 85vh !important;
+  }
+</style>
 </body>
 </html>

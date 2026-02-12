@@ -72,37 +72,36 @@
     }
     .btn-reset:hover { background: rgba(233,69,96,0.3); transform: translateY(-1px); }
 
-    /* ===== Right Panel Tabs ===== */
-    .panel-tabs {
-      display: flex; gap: 0; margin-bottom: 16px;
+    /* ===== Top-Level Page Tabs ===== */
+    .page-tabs {
+      display: flex; gap: 0;
+      background: rgba(0,0,0,0.2);
       border-radius: 10px; overflow: hidden;
-      border: 1px solid var(--border); background: var(--bg-secondary);
+      border: 1px solid var(--border);
     }
-    .panel-tab {
-      flex: 1; padding: 12px 8px; text-align: center;
-      font-size: 13px; font-weight: 600; cursor: pointer;
+    .page-tab {
+      padding: 10px 24px; text-align: center;
+      font-size: 14px; font-weight: 600; cursor: pointer;
       border: none; background: transparent;
       color: var(--text-secondary); transition: all 0.3s;
-      font-family: 'Inter', sans-serif;
+      font-family: 'Inter', sans-serif; white-space: nowrap;
     }
-    .panel-tab:hover { background: rgba(255,255,255,0.03); }
-    .panel-tab.active {
-      background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+    .page-tab:hover { background: rgba(255,255,255,0.05); }
+    .page-tab.active {
+      background: linear-gradient(135deg, var(--accent), #c0392b);
       color: #fff;
     }
-    .panel-tab.active:first-child {
-      background: linear-gradient(135deg, var(--accent), #c0392b);
+    .page-tab.active.sre-tab {
+      background: linear-gradient(135deg, #6c5ce7, #a29bfe);
     }
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-    #chat-tab-content {
-      background: var(--bg-card); border-radius: var(--radius);
-      border: 1px solid var(--border); overflow: hidden;
-      height: 560px; position: relative;
+    .page-content { display: none; }
+    .page-content.active { display: block; }
+    #sre-page {
+      position: fixed; top: 73px; left: 0; right: 0; bottom: 0;
+      z-index: 50;
     }
-    #chat-iframe {
+    #sre-page iframe {
       width: 100%; height: 100%; border: none;
-      border-radius: var(--radius);
     }
 
     /* ===== Main Layout ===== */
@@ -397,14 +396,23 @@
         <h1>CineBook</h1>
       </div>
       <div class="header-actions">
-        <button class="btn-header btn-view-bookings" onclick="openBookingsModal()">📋 View Bookings</button>
-        <button class="btn-header btn-reset" onclick="confirmReset()">🔄 Reset Bookings</button>
+        <div class="page-tabs">
+          <button class="page-tab active" onclick="switchPage('booking')">🎬 Movie Booking</button>
+          <button class="page-tab sre-tab" onclick="switchPage('sre')">🤖 SRE Agent</button>
+        </div>
+        <button class="btn-header btn-view-bookings" id="btn-view-bookings" onclick="openBookingsModal()">📋 View Bookings</button>
+        <button class="btn-header btn-reset" id="btn-reset" onclick="confirmReset()">🔄 Reset Bookings</button>
       </div>
     </div>
   </header>
 
-  <!-- Main Content -->
-  <div class="main-container">
+  <!-- SRE Agent Full Page (hidden by default) -->
+  <div id="sre-page" class="page-content">
+    <iframe id="sre-iframe" src="about:blank"></iframe>
+  </div>
+
+  <!-- Main Content (Movie Booking) -->
+  <div class="main-container page-content active" id="booking-page">
     <!-- Left: Seat Selection -->
     <div class="left-panel">
       <div class="movie-info">
@@ -434,12 +442,6 @@
 
     <!-- Right: Booking Panel -->
     <div class="booking-panel">
-      <div class="panel-tabs">
-        <button class="panel-tab active" onclick="switchTab('booking')">🎫 Booking</button>
-        <button class="panel-tab" onclick="switchTab('chat')">🤖 SRE Agent</button>
-      </div>
-
-      <div id="booking-tab-content" class="tab-content active">
       <div class="panel-card">
         <h3>🎫 Book Your Seats</h3>
         <div class="stats-row">
@@ -487,13 +489,8 @@
         <button class="btn-sre" onclick="simulateError()">⚡ Generate Error</button>
         <div id="error-result" class="sre-result"></div>
       </div>
-      </div><!-- end booking-tab-content -->
-
-      <div id="chat-tab-content" class="tab-content">
-        <iframe id="chat-iframe" src="about:blank"></iframe>
-      </div>
     </div>
-  </div>
+  </div><!-- end booking-page -->
 
   <!-- Bookings Modal -->
   <div class="modal-overlay" id="bookings-modal">
@@ -753,24 +750,26 @@ document.addEventListener('click', function(e) {
   if (e.target.id === 'reset-confirm') closeConfirm();
 });
 
-// ===== Tab Switching =====
-var chatLoaded = false;
-function switchTab(tab) {
-  document.querySelectorAll('.panel-tab').forEach(function(t) { t.classList.remove('active'); });
-  document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
-  if (tab === 'chat') {
-    document.querySelectorAll('.panel-tab')[1].classList.add('active');
-    document.getElementById('chat-tab-content').classList.add('active');
-    if (!chatLoaded) { loadChat(); chatLoaded = true; }
+// ===== Page Switching =====
+var sreLoaded = false;
+function switchPage(page) {
+  document.querySelectorAll('.page-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.page-content').forEach(function(c) { c.classList.remove('active'); });
+  if (page === 'sre') {
+    document.querySelectorAll('.page-tab')[1].classList.add('active');
+    document.getElementById('sre-page').classList.add('active');
+    document.getElementById('btn-view-bookings').style.display = 'none';
+    document.getElementById('btn-reset').style.display = 'none';
+    if (!sreLoaded) {
+      document.getElementById('sre-iframe').src = '/chat?embed=1';
+      sreLoaded = true;
+    }
   } else {
-    document.querySelectorAll('.panel-tab')[0].classList.add('active');
-    document.getElementById('booking-tab-content').classList.add('active');
+    document.querySelectorAll('.page-tab')[0].classList.add('active');
+    document.getElementById('booking-page').classList.add('active');
+    document.getElementById('btn-view-bookings').style.display = '';
+    document.getElementById('btn-reset').style.display = '';
   }
-}
-
-// ===== watsonx Orchestrate SRE Agent Chat =====
-function loadChat() {
-  document.getElementById('chat-iframe').src = '/chat?embed=1';
 }
 </script>
 </body>

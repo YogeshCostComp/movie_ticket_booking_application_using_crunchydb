@@ -624,9 +624,13 @@ def create_jwt_token():
         )
         encrypted_payload = base64.b64encode(encrypted).decode('utf-8')
 
-        # Build JWT claims
+        # Build JWT claims (sub + exp are REQUIRED by watsonx Orchestrate)
+        import time as _time
+        now = int(_time.time())
         jwt_claims = {
             "sub": user_id,
+            "iat": now,
+            "exp": now + 3600,          # 1-hour expiry
             "user_payload": encrypted_payload
         }
 

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🤖 SRE Agent — CineBook</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0f0f1a;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
+      border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0;
+    }
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .topbar-left .logo-icon { font-size: 1.5rem; }
+    .topbar-left h1 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #e94560, #ff6b81);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .topbar-left .divider {
+      width: 1px; height: 24px;
+      background: #2a2a4a;
+    }
+    .topbar-left .page-title {
+      font-size: 0.95rem;
+      color: #a0a0b8;
+      font-weight: 500;
+    }
+    .btn-back {
+      padding: 8px 18px;
+      border-radius: 8px;
+      border: 1px solid #2a2a4a;
+      background: rgba(233, 69, 96, 0.1);
+      color: #e94560;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+    .btn-back:hover {
+      background: rgba(233, 69, 96, 0.2);
+      border-color: #e94560;
+    }
+
+    /* Chat container fills remaining space */
+    #chat-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    #root {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="logo-icon">🎬</span>
+      <h1>CineBook</h1>
+      <div class="divider"></div>
+      <span class="page-title">🤖 SRE Agent Chat</span>
+    </div>
+    <a href="/" class="btn-back">← Back to App</a>
+  </div>
+
+  <div id="chat-container">
+    <div id="root"></div>
+  </div>
+
+  <!-- watsonx Orchestrate SRE Agent — Full-page embed -->
+  <script>
+    async function getIdentityToken() {
+      try {
+        var resp = await fetch('/createJWT');
+        if (!resp.ok) throw new Error('JWT fetch failed: ' + resp.status);
+        return await resp.text();
+      } catch(e) {
+        console.error('getIdentityToken error:', e);
+        return null;
+      }
+    }
+
+    function onChatLoad(instance) {
+      instance.on('identityTokenExpired', async function (event) {
+        var newToken = await getIdentityToken();
+        if (newToken) event.identityToken = newToken;
+      });
+    }
+
+    getIdentityToken().then(function (token) {
+      var config = {
+        orchestrationID: "8180dcb5f0394822b2ad3e48fcd8169f_63514989-f019-4d5f-ad14-37a486ba9981",
+        hostURL: "https://au-syd.watson-orchestrate.cloud.ibm.com",
+        rootElementID: "root",
+        deploymentPlatform: "ibmcloud",
+        layout: "custom",
+        crn: "crn:v1:bluemix:public:watsonx-orchestrate:au-syd:a/8180dcb5f0394822b2ad3e48fcd8169f:63514989-f019-4d5f-ad14-37a486ba9981::",
+        chatOptions: {
+          agentId: "ced30827-2cfe-42c1-bdd0-c785df7a2793",
+          agentEnvironmentId: "de97e8dd-fe24-44c0-9f04-738fcced87ec",
+          onLoad: onChatLoad
+        }
+      };
+      if (token) config.identityToken = token;
+      window.wxOConfiguration = config;
+
+      var script = document.createElement('script');
+      script.src = config.hostURL + '/wxochat/wxoLoader.js?embed=true';
+      script.addEventListener('load', function () { wxoLoader.init(); });
+      document.head.appendChild(script);
+    });
+  </script>
+</body>
+</html>

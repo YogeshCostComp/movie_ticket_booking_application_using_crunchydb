@@ -218,6 +218,10 @@ data_seats ={
 def home():
 	return render_template("UI.html", trace_id=g.trace_id)
 
+@app.route("/chat")
+def chat():
+	return render_template("Chat.html")
+
 @app.route("/create")
 def create_table():
 	conn = get_db_connection()

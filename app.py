@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, g, session
+from flask import Flask, render_template, request, jsonify, g, session, make_response
 import json
 import psycopg2
 import psycopg2.errorcodes
@@ -9,6 +9,17 @@ import os
 import sys
 import uuid
 from datetime import datetime
+
+# JWT for watsonx Orchestrate embedded chat security
+try:
+    import jwt  # PyJWT
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
+    from cryptography.hazmat.primitives import hashes
+    import base64
+    _JWT_AVAILABLE = True
+except ImportError:
+    _JWT_AVAILABLE = False
 
 
 # Configure logging for IBM Cloud Code Engine
@@ -548,6 +559,98 @@ def simulate_error():
 
     else:
         return jsonify({"error": f"Unknown error type: {error_type}", "valid_types": ["404", "500", "503", "db_error", "timeout", "exception", "all"]}), 400
+
+
+# ===== watsonx Orchestrate Embedded Chat — JWT Token Endpoint =====
+_KEYS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keys')
+
+def _load_private_key():
+    """Load client private key for signing JWTs.
+    Production: reads from WXO_CLIENT_PRIVATE_KEY env var.
+    Local dev:  falls back to keys/client_private_key.pem file.
+    """
+    env_key = os.environ.get('WXO_CLIENT_PRIVATE_KEY')
+    if env_key:
+        # Env vars collapse newlines — restore them
+        return env_key.replace('\\n', '\n').encode('utf-8')
+    key_path = os.path.join(_KEYS_DIR, 'client_private_key.pem')
+    with open(key_path, 'rb') as f:
+        return f.read()
+
+def _load_ibm_public_key():
+    """Load IBM public key for encrypting user_payload.
+    Production: reads from WXO_IBM_PUBLIC_KEY env var.
+    Local dev:  falls back to keys/ibm_public_key.pem file.
+    """
+    env_key = os.environ.get('WXO_IBM_PUBLIC_KEY')
+    if env_key:
+        pem_bytes = env_key.replace('\\n', '\n').encode('utf-8')
+        return serialization.load_pem_public_key(pem_bytes)
+    key_path = os.path.join(_KEYS_DIR, 'ibm_public_key.pem')
+    with open(key_path, 'rb') as f:
+        return serialization.load_pem_public_key(f.read())
+
+@app.route('/createJWT', methods=['GET'])
+def create_jwt_token():
+    """Generate a signed JWT for watsonx Orchestrate embedded chat.
+    The JWT is signed with our client private key (RS256).
+    The user_payload is encrypted with IBM's public key (RSA-OAEP + SHA256).
+    """
+    if not _JWT_AVAILABLE:
+        return jsonify({"error": "JWT dependencies not installed (PyJWT, cryptography)"}), 500
+
+    try:
+        # Get or create an anonymous user ID from cookies
+        user_id = request.cookies.get('EMBED_USER_ID')
+        if not user_id:
+            user_id = f"anon-{uuid.uuid4().hex[:8]}"
+
+        # Build user_payload (will be encrypted)
+        user_payload = {
+            "name": "CineBook User",
+            "custom_message": "SRE Agent Chat Session"
+        }
+
+        # Encrypt user_payload with IBM public key (RSA-OAEP + SHA256)
+        ibm_pub_key = _load_ibm_public_key()
+        payload_bytes = json.dumps(user_payload).encode('utf-8')
+        encrypted = ibm_pub_key.encrypt(
+            payload_bytes,
+            asym_padding.OAEP(
+                mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+        encrypted_payload = base64.b64encode(encrypted).decode('utf-8')
+
+        # Build JWT claims
+        jwt_claims = {
+            "sub": user_id,
+            "user_payload": encrypted_payload
+        }
+
+        # Sign the JWT with client private key (RS256)
+        private_key = _load_private_key()
+        token = jwt.encode(
+            jwt_claims,
+            private_key,
+            algorithm='RS256',
+            headers={"alg": "RS256", "typ": "JWT"}
+        )
+
+        # Return the JWT and set the user ID cookie (45 days)
+        resp = make_response(token)
+        resp.content_type = 'text/plain'
+        resp.set_cookie('EMBED_USER_ID', user_id, max_age=45 * 24 * 3600, httponly=True)
+        return resp
+
+    except FileNotFoundError as e:
+        logger.error(f"JWT key file not found: {e}")
+        return jsonify({"error": "Security keys not configured. Set WXO_CLIENT_PRIVATE_KEY and WXO_IBM_PUBLIC_KEY env vars, or run configure_embed_security.py --enable"}), 500
+    except Exception as e:
+        logger.error(f"JWT generation failed: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':

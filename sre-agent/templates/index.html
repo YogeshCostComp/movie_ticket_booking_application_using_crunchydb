@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRE Agent — Orchestrator</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- ── Header ────────────────────────────────────────── -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="logo">🤖</div>
+                <div class="header-text">
+                    <h1>SRE Agent Orchestrator</h1>
+                    <span class="subtitle">Ephemeral Agent Architecture — Powered by Claude + MCP</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="connection-status" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+                <div class="mcp-badge" id="mcpBadge" title="MCP Server Status">
+                    <span>MCP</span>
+                    <span class="mcp-dot"></span>
+                </div>
+            </div>
+        </header>
+
+        <!-- ── Main Content: Chat + Pipeline ─────────────────── -->
+        <div class="main-content">
+
+            <!-- LEFT: Chat Window -->
+            <div class="chat-panel">
+                <div class="panel-header">
+                    <span class="panel-icon">💬</span>
+                    <span>Chat</span>
+                    <button class="btn-clear" id="btnClear" title="Clear chat">🗑️</button>
+                </div>
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message system-message">
+                        <div class="message-icon">🤖</div>
+                        <div class="message-content">
+                            <p>Welcome to the <strong>SRE Agent Orchestrator</strong>!</p>
+                            <p>I can spin up specialized agents to help you:</p>
+                            <ul>
+                                <li>📋 <strong>Log Agent</strong> — Check error logs, search patterns</li>
+                                <li>🏥 <strong>Health Agent</strong> — App & DB health checks</li>
+                                <li>📡 <strong>Monitoring Agent</strong> — Start/stop continuous monitoring</li>
+                                <li>📕 <strong>Runbook Agent</strong> — Automated runbook with auto-restart</li>
+                                <li>🔗 <strong>Trace Agent</strong> — Analyze request traces</li>
+                                <li>📊 <strong>Dashboard Agent</strong> — SRE golden signals dashboard</li>
+                                <li>🚀 <strong>Deployment Agent</strong> — Manage app lifecycle</li>
+                            </ul>
+                            <p><em>Try: "Check logs for errors in the last 24 hours"</em></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Input -->
+                <div class="chat-input-area">
+                    <div class="input-wrapper">
+                        <textarea id="chatInput" placeholder="Ask the SRE agent anything..." rows="1"></textarea>
+                        <button id="btnSend" class="btn-send" title="Send">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="input-hints">
+                        <span class="hint-chip" data-query="Check error logs last 24 hours">📋 Error Logs</span>
+                        <span class="hint-chip" data-query="Is the app healthy?">🏥 Health Check</span>
+                        <span class="hint-chip" data-query="Show me the SRE dashboard">📊 Dashboard</span>
+                        <span class="hint-chip" data-query="Show recent traces">🔗 Traces</span>
+                        <span class="hint-chip" data-query="Start monitoring every 2 minutes">📡 Monitor</span>
+                        <span class="hint-chip" data-query="Enable runbook monitoring">📕 Runbook</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: Pipeline Panel -->
+            <div class="pipeline-panel">
+                <div class="panel-header">
+                    <span class="panel-icon">⚙️</span>
+                    <span>Agent Pipeline</span>
+                    <button class="btn-clear" id="btnClearPipeline" title="Clear pipeline">🗑️</button>
+                </div>
+
+                <!-- Active Agent Card -->
+                <div class="active-agent-card" id="activeAgentCard" style="display:none;">
+                    <div class="agent-card-header">
+                        <span class="agent-card-icon" id="activeAgentIcon">🤖</span>
+                        <div>
+                            <div class="agent-card-name" id="activeAgentName">—</div>
+                            <div class="agent-card-id" id="activeAgentId">—</div>
+                        </div>
+                        <span class="agent-card-status" id="activeAgentStatus">idle</span>
+                    </div>
+                    <div class="agent-card-timer" id="activeAgentTimer">0.0s</div>
+                </div>
+
+                <!-- Pipeline Steps -->
+                <div class="pipeline-steps" id="pipelineSteps">
+                    <div class="pipeline-empty">
+                        <div class="empty-icon">⚙️</div>
+                        <p>Pipeline is idle.</p>
+                        <p class="empty-sub">Send a query and watch agents spin up here.</p>
+                    </div>
+                </div>
+
+                <!-- Agent History -->
+                <div class="pipeline-history-header">
+                    <span>📜 Recent Agent Runs</span>
+                </div>
+                <div class="pipeline-history" id="pipelineHistory">
+                    <div class="history-empty">No runs yet</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inspect Overlay -->
+    <div class="inspect-overlay" id="inspectOverlay">
+        <div class="inspect-drawer">
+            <div class="inspect-drawer-header">
+                <div class="inspect-drawer-title">
+                    <span>🔍 Agent Inspector</span>
+                    <span class="inspect-status-badge" id="inspectBadge">● ACTIVE</span>
+                </div>
+                <button class="inspect-close" id="inspectClose" title="Close">&times;</button>
+            </div>
+            <div class="inspect-drawer-body" id="inspectBody">
+                <div class="inspect-loading"><div class="inspect-spinner"></div><p>Loading agent data...</p></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

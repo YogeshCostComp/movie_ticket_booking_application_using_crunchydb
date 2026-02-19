@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 Agent Inspector — {{ agent_id }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #0a0c10;
+            color: #e4e7f1;
+            min-height: 100vh;
+        }
+        .inspector-header {
+            background: linear-gradient(135deg, #0f1117 0%, #161822 100%);
+            border-bottom: 1px solid #2a2f45;
+            padding: 1.5rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .header-left { display: flex; align-items: center; gap: 1rem; }
+        .header-left h1 { font-size: 1.3rem; font-weight: 600; }
+        .header-left .subtitle { color: #8b92b0; font-size: 0.85rem; }
+        .back-btn {
+            color: #6366f1;
+            text-decoration: none;
+            font-size: 0.85rem;
+            padding: 6px 14px;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+        .back-btn:hover {
+            background: rgba(99, 102, 241, 0.1);
+            border-color: #6366f1;
+        }
+
+        .inspector-body {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Status Banner */
+        .status-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1.2rem 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            animation: bannerPulse 3s ease-in-out infinite;
+        }
+        .status-banner.active {
+            background: rgba(34, 197, 94, 0.08);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        .status-banner.destroyed {
+            background: rgba(248, 81, 73, 0.08);
+            border: 1px solid rgba(248, 81, 73, 0.3);
+            animation: none;
+        }
+        .status-banner.cooling_down {
+            background: rgba(240, 136, 62, 0.08);
+            border: 1px solid rgba(240, 136, 62, 0.3);
+        }
+        @keyframes bannerPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.1); }
+            50% { box-shadow: 0 0 20px 4px rgba(34, 197, 94, 0.1); }
+        }
+        .status-left { display: flex; align-items: center; gap: 1rem; }
+        .status-icon { font-size: 2rem; }
+        .status-text h2 { font-size: 1.1rem; font-weight: 600; }
+        .status-text .status-label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .status-label.active { color: #22c55e; }
+        .status-label.destroyed { color: #f85149; }
+        .status-label.cooling_down { color: #f0883e; }
+        .status-badge {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .status-badge.active { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+        .status-badge.destroyed { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+        .status-badge.cooling_down { background: rgba(240, 136, 62, 0.15); color: #f0883e; }
+
+        /* Countdown */
+        .countdown-banner {
+            text-align: center;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            background: rgba(240, 136, 62, 0.06);
+            border: 1px solid rgba(240, 136, 62, 0.2);
+            border-radius: 12px;
+        }
+        .countdown-number {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #f0883e;
+        }
+        .countdown-label {
+            color: #8b92b0;
+            font-size: 0.8rem;
+            margin-top: 4px;
+        }
+
+        /* Meta Grid */
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .meta-card {
+            background: #161822;
+            border: 1px solid #2a2f45;
+            border-radius: 12px;
+            padding: 1rem 1.2rem;
+        }
+        .meta-card .label {
+            color: #5e6484;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 6px;
+        }
+        .meta-card .value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.88rem;
+            color: #e4e7f1;
+            word-break: break-all;
+        }
+        .meta-card .value.highlight { color: #6366f1; }
+
+        /* Timeline */
+        .timeline-section {
+            margin-top: 2rem;
+        }
+        .timeline-section h3 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            color: #8b92b0;
+        }
+        .timeline {
+            position: relative;
+            padding-left: 2rem;
+        }
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 8px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #2a2f45;
+        }
+        .timeline-event {
+            position: relative;
+            padding: 0.8rem 1rem;
+            margin-bottom: 0.5rem;
+            background: #161822;
+            border: 1px solid #2a2f45;
+            border-radius: 10px;
+        }
+        .timeline-event::before {
+            content: '';
+            position: absolute;
+            left: -1.65rem;
+            top: 1.1rem;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #6366f1;
+            border: 2px solid #0a0c10;
+        }
+        .timeline-event .event-step {
+            font-size: 0.88rem;
+            font-weight: 500;
+        }
+        .timeline-event .event-detail {
+            color: #8b92b0;
+            font-size: 0.78rem;
+            margin-top: 2px;
+        }
+        .timeline-event .event-time {
+            color: #5e6484;
+            font-size: 0.72rem;
+            font-family: 'JetBrains Mono', monospace;
+            margin-top: 4px;
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 4rem;
+            color: #8b92b0;
+        }
+        .loading .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 3px solid #2a2f45;
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-msg {
+            text-align: center;
+            padding: 3rem;
+            color: #f85149;
+        }
+
+        .refresh-note {
+            text-align: center;
+            color: #5e6484;
+            font-size: 0.75rem;
+            margin-top: 2rem;
+            padding-bottom: 2rem;
+        }
+        .refresh-note .dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background: #22c55e;
+            border-radius: 50%;
+            margin-right: 6px;
+            animation: blink 1.5s ease-in-out infinite;
+        }
+        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+    </style>
+</head>
+<body>
+    <div class="inspector-header">
+        <div class="header-left">
+            <div>
+                <h1>🔍 Agent Inspector</h1>
+                <div class="subtitle">Real-time proof of ephemeral agent lifecycle</div>
+            </div>
+        </div>
+        <a href="/" class="back-btn">← Back to Orchestrator</a>
+    </div>
+
+    <div class="inspector-body">
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 1rem;">Fetching agent data...</p>
+        </div>
+
+        <div id="errorMsg" class="error-msg" style="display:none"></div>
+
+        <div id="agentData" style="display:none">
+            <!-- Status Banner -->
+            <div class="status-banner" id="statusBanner">
+                <div class="status-left">
+                    <div class="status-icon" id="agentIcon">🤖</div>
+                    <div class="status-text">
+                        <h2 id="agentTitle">—</h2>
+                        <div class="status-label" id="statusLabel">—</div>
+                    </div>
+                </div>
+                <div class="status-badge" id="statusBadge">—</div>
+            </div>
+
+            <!-- Countdown (only shown during cooldown) -->
+            <div class="countdown-banner" id="countdownBanner" style="display:none">
+                <div class="countdown-number" id="countdownNumber">2:00</div>
+                <div class="countdown-label">Time until auto-destruction</div>
+            </div>
+
+            <!-- Metadata Grid -->
+            <div class="meta-grid">
+                <div class="meta-card">
+                    <div class="label">Agent ID</div>
+                    <div class="value highlight" id="metaAgentId">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Agent Type</div>
+                    <div class="value" id="metaAgentType">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Python Class</div>
+                    <div class="value" id="metaPythonClass">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Python Object ID (Memory Address)</div>
+                    <div class="value highlight" id="metaObjectId">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Process ID (PID)</div>
+                    <div class="value" id="metaPid">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Thread</div>
+                    <div class="value" id="metaThread">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Created At</div>
+                    <div class="value" id="metaCreated">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Completed At</div>
+                    <div class="value" id="metaCompleted">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Duration</div>
+                    <div class="value" id="metaDuration">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Action Executed</div>
+                    <div class="value" id="metaAction">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Result Status</div>
+                    <div class="value" id="metaResult">—</div>
+                </div>
+                <div class="meta-card">
+                    <div class="label">Result Size</div>
+                    <div class="value" id="metaSize">—</div>
+                </div>
+            </div>
+
+            <!-- Lifecycle Timeline -->
+            <div class="timeline-section">
+                <h3>📜 Lifecycle Event Audit Trail</h3>
+                <div class="timeline" id="timeline"></div>
+            </div>
+        </div>
+
+        <div class="refresh-note" id="refreshNote" style="display:none">
+            <span class="dot"></span> Live — auto-refreshing every 2 seconds
+        </div>
+    </div>
+
+    <script>
+        const AGENT_ID = '{{ agent_id }}';
+        const COOLDOWN = {{ cooldown_seconds }};
+        let pollTimer = null;
+        let countdownTimer = null;
+        let countdownStart = null;
+
+        async function fetchAgent() {
+            try {
+                const resp = await fetch(`/api/agents/${AGENT_ID}`);
+                if (!resp.ok) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('errorMsg').style.display = 'block';
+                    document.getElementById('errorMsg').innerHTML = `
+                        <h2>❌ Agent Not Found</h2>
+                        <p style="margin-top:0.5rem;color:#8b92b0;">Agent <code>${AGENT_ID}</code> has been fully destroyed and garbage-collected.</p>
+                        <p style="margin-top:1rem;"><a href="/" style="color:#6366f1;">← Return to Orchestrator</a></p>
+                    `;
+                    stopPolling();
+                    return;
+                }
+
+                const data = await resp.json();
+                renderAgent(data);
+            } catch (err) {
+                console.error('Fetch error:', err);
+            }
+        }
+
+        function renderAgent(data) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('agentData').style.display = 'block';
+            document.getElementById('refreshNote').style.display = 'block';
+
+            const status = data.status || 'unknown';
+
+            // Status Banner
+            const banner = document.getElementById('statusBanner');
+            banner.className = `status-banner ${status}`;
+            document.getElementById('agentIcon').textContent = data.agent_icon || '🤖';
+            document.getElementById('agentTitle').textContent = data.description || data.agent_type;
+            const statusLabel = document.getElementById('statusLabel');
+            statusLabel.textContent = status === 'active' || status === 'executing'
+                ? '🟢 AGENT IS ALIVE — Python object in memory'
+                : status === 'destroyed'
+                ? '🔴 AGENT DESTROYED — Object garbage-collected'
+                : `🟡 ${status.toUpperCase()}`;
+            statusLabel.className = `status-label ${status === 'executing' ? 'active' : status}`;
+
+            const badge = document.getElementById('statusBadge');
+            badge.textContent = status === 'executing' ? '● ACTIVE' : status === 'active' ? '● ACTIVE' : status === 'destroyed' ? '✕ DESTROYED' : status.toUpperCase();
+            badge.className = `status-badge ${status === 'executing' ? 'active' : status}`;
+
+            // Countdown
+            const countdownBanner = document.getElementById('countdownBanner');
+            if (status === 'active' || status === 'executing') {
+                countdownBanner.style.display = 'block';
+                if (!countdownStart) {
+                    countdownStart = Date.now();
+                    startCountdown(data);
+                }
+            } else {
+                countdownBanner.style.display = 'none';
+                if (countdownTimer) {
+                    clearInterval(countdownTimer);
+                    countdownTimer = null;
+                }
+            }
+
+            // Metadata
+            document.getElementById('metaAgentId').textContent = data.agent_id;
+            document.getElementById('metaAgentType').textContent = data.agent_type;
+            document.getElementById('metaPythonClass').textContent = data.python_class || '—';
+            document.getElementById('metaObjectId').textContent = data.python_object_id
+                ? `0x${data.python_object_id.toString(16).toUpperCase()}`
+                : '—';
+            document.getElementById('metaPid').textContent = data.process_id || '—';
+            document.getElementById('metaThread').textContent = data.thread_name
+                ? `${data.thread_name} (${data.thread_id})`
+                : '—';
+            document.getElementById('metaCreated').textContent = data.created_at
+                ? new Date(data.created_at + 'Z').toLocaleString()
+                : '—';
+            document.getElementById('metaCompleted').textContent = data.completed_at
+                ? new Date(data.completed_at + 'Z').toLocaleString()
+                : 'Still running...';
+            document.getElementById('metaDuration').textContent = data.duration_seconds
+                ? `${data.duration_seconds.toFixed(2)}s`
+                : 'In progress...';
+            document.getElementById('metaAction').textContent = data.action || '—';
+            document.getElementById('metaResult').textContent = data.result_status || 'pending';
+            document.getElementById('metaSize').textContent = data.result_size_bytes
+                ? `${data.result_size_bytes.toLocaleString()} bytes`
+                : '—';
+
+            // Timeline
+            const timeline = document.getElementById('timeline');
+            timeline.innerHTML = '';
+            if (data.events && data.events.length > 0) {
+                data.events.forEach(ev => {
+                    const div = document.createElement('div');
+                    div.className = 'timeline-event';
+                    div.innerHTML = `
+                        <div class="event-step">${escapeHtml(ev.step || '')}</div>
+                        ${ev.detail ? `<div class="event-detail">${escapeHtml(ev.detail)}</div>` : ''}
+                        <div class="event-time">${ev.timestamp ? new Date(ev.timestamp + 'Z').toLocaleTimeString() : ''}</div>
+                    `;
+                    timeline.appendChild(div);
+                });
+            } else {
+                timeline.innerHTML = '<div style="color:#5e6484;padding:1rem;">No events recorded yet.</div>';
+            }
+
+            // If destroyed, stop polling
+            if (status === 'destroyed') {
+                stopPolling();
+                document.getElementById('refreshNote').innerHTML =
+                    '<span style="color:#f85149;">● Agent destroyed — polling stopped</span>';
+            }
+        }
+
+        function startCountdown(data) {
+            // Calculate remaining time based on agent created_at
+            const createdAt = new Date(data.created_at + 'Z').getTime();
+            const completedAt = data.completed_at
+                ? new Date(data.completed_at + 'Z').getTime()
+                : Date.now();
+            // Cooldown starts from when the agent completed its work
+            const cooldownEnd = completedAt + (COOLDOWN * 1000);
+
+            countdownTimer = setInterval(() => {
+                const now = Date.now();
+                const remaining = Math.max(0, Math.floor((cooldownEnd - now) / 1000));
+                const m = Math.floor(remaining / 60);
+                const s = remaining % 60;
+                document.getElementById('countdownNumber').textContent =
+                    `${m}:${s.toString().padStart(2, '0')}`;
+
+                if (remaining <= 0) {
+                    clearInterval(countdownTimer);
+                    document.getElementById('countdownNumber').textContent = 'DESTROYING...';
+                    document.getElementById('countdownNumber').style.color = '#f85149';
+                }
+            }, 1000);
+        }
+
+        function stopPolling() {
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Start
+        fetchAgent();
+        pollTimer = setInterval(fetchAgent, 2000);
+    </script>
+</body>
+</html>

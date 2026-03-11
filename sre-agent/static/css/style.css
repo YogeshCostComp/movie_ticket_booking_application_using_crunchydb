@@ -1028,6 +1028,90 @@ body {
 }
 @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
+/* ── watsonx.governance Evaluation Scorecard ──────────────────────── */
+.eval-scorecard {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: rgba(99, 102, 241, 0.07);
+    border: 1px solid rgba(99, 102, 241, 0.22);
+    border-radius: 10px;
+    font-size: 0.82rem;
+}
+.eval-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+.eval-title {
+    font-weight: 600;
+    color: #a5b4fc;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.eval-engine {
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+.eval-engine.ibm {
+    background: rgba(59, 130, 246, 0.15);
+    color: #93c5fd;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+.eval-engine.fallback {
+    background: rgba(100, 100, 100, 0.15);
+    color: #9ca3af;
+    border: 1px solid rgba(100, 100, 100, 0.25);
+}
+.eval-overall {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.eval-overall strong {
+    font-size: 0.88rem;
+}
+.eval-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.eval-metric-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.eval-metric-label {
+    color: #9ca3af;
+    font-size: 0.78rem;
+}
+.eval-metric-score {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.eval-pass.pass { color: #4ade80; font-size: 0.75rem; }
+.eval-pass.fail { color: #f87171; font-size: 0.75rem; }
+.eval-bar-bg {
+    height: 5px;
+    background: rgba(255, 255, 255, 0.07);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.eval-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.7s ease;
+}
+
 /* ── Responsive ───────────────────────────────────────────────────── */
 @media (max-width: 900px) {
     .pipeline-panel {

@@ -66,6 +66,9 @@ function connect() {
             case 'chat_response':
                 handleChatResponse(msg.data);
                 break;
+            case 'evaluation_result':
+                handleEvaluationResult(msg.data);
+                break;
         }
     };
 }
@@ -155,6 +158,73 @@ function handleChatResponse(data) {
     // Add agent response
     const agentIcon = AGENT_ICONS[data.agent_type] || '🤖';
     addMessage(data.message, 'agent', agentIcon, data.agent_type);
+}
+
+function handleEvaluationResult(data) {
+    // Attach governance scorecard to the last agent message
+    const agentMessages = chatMessages.querySelectorAll('.agent-message:not(.typing-message)');
+    if (agentMessages.length === 0) return;
+    const lastMsg = agentMessages[agentMessages.length - 1];
+    const content = lastMsg.querySelector('.message-content');
+    if (!content) return;
+
+    const metrics = data.metrics || {};
+    const engine = data.evaluation_engine || 'unknown';
+    const overall = data.overall_score != null ? data.overall_score : null;
+    const isIBM = engine === 'ibm_watsonx_governance';
+
+    const engineLabel = isIBM
+        ? '<span class="eval-engine ibm">🔷 IBM watsonx.governance</span>'
+        : '<span class="eval-engine fallback">⚙️ Heuristic Eval</span>';
+
+    function metricBar(metricKey, label, icon) {
+        const m = metrics[metricKey];
+        if (!m) return '';
+        const score = m.score != null ? m.score : null;
+        const pct = score != null ? Math.round(score * 100) : 0;
+        const color = pct >= 70 ? '#4ade80' : pct >= 40 ? '#facc15' : '#f87171';
+        const passIndicator = m.passed != null
+            ? `<span class="eval-pass ${m.passed ? 'pass' : 'fail'}">${m.passed ? '✅' : '❌'}</span>`
+            : '';
+        return `
+            <div class="eval-metric">
+                <div class="eval-metric-header">
+                    <span class="eval-metric-label">${icon} ${label}</span>
+                    <span class="eval-metric-score">${score != null ? pct + '%' : '—'}${passIndicator}</span>
+                </div>
+                <div class="eval-bar-bg">
+                    <div class="eval-bar-fill" style="width:${pct}%;background:${color};"></div>
+                </div>
+            </div>`;
+    }
+
+    const overallPct = overall != null ? Math.round(overall * 100) : null;
+    const overallColor = overallPct >= 70 ? '#4ade80' : overallPct >= 40 ? '#facc15' : '#f87171';
+    const overallHtml = overallPct != null
+        ? `<span class="eval-overall" style="color:${overallColor};">Overall: <strong>${overallPct}%</strong></span>`
+        : '';
+
+    // Remove old scorecard if re-evaluated
+    const old = content.querySelector('.eval-scorecard');
+    if (old) old.remove();
+
+    const card = document.createElement('div');
+    card.className = 'eval-scorecard';
+    card.innerHTML = `
+        <div class="eval-header">
+            <span class="eval-title">📊 Governance Evaluation</span>
+            ${engineLabel}
+            ${overallHtml}
+        </div>
+        <div class="eval-metrics">
+            ${metricBar('answer_relevance', 'Answer Relevance', '🎯')}
+            ${metricBar('faithfulness', 'Faithfulness', '🔍')}
+            ${metricBar('content_safety', 'Content Safety', '🛡️')}
+        </div>
+    `;
+    content.appendChild(card);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    saveState();
 }
 
 // ── Chat Functions ─────────────────────────────────────────────────

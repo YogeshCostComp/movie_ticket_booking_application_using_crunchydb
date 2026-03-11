@@ -21,6 +21,7 @@ from fastapi.templating import Jinja2Templates
 from mcp_client import MCPClient
 from llm_brain import LLMBrain
 from agent_registry import registry
+from watsonx_evaluator import WatsonxEvaluator
 from agents.log_agent import LogAgent
 from agents.health_agent import HealthAgent
 from agents.monitoring_agent import MonitoringAgent
@@ -42,6 +43,7 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 # ── Shared instances ────────────────────────────────────────────────
 mcp = MCPClient()
 brain = LLMBrain()
+evaluator = WatsonxEvaluator()
 AGENT_COOLDOWN_SECONDS = int(os.environ.get("AGENT_COOLDOWN_SECONDS", 120))
 
 # Agent registry
@@ -310,6 +312,46 @@ async def websocket_endpoint(ws: WebSocket):
 
             # ── Send response to chat ───────────────────────────
             await send_chat_response(ws, formatted, agent_name, session_id)
+
+            # ── Pipeline: Step 5 — Evaluate with IBM watsonx.governance ─
+            await broadcast_pipeline_event({
+                "step": "📊 Evaluating with IBM watsonx.governance",
+                "status": "running",
+                "detail": "Running Answer Relevance, Faithfulness & Content Safety",
+                "agent_id": agent.agent_id,
+                "agent_type": agent_name,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+
+            raw_context = str(result.get("data", ""))[:2000]  # cap context size
+            eval_result = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: evaluator.evaluate_response(
+                    session_id=session_id,
+                    user_query=user_message,
+                    agent_response=formatted,
+                    agent_type=agent_name,
+                    action=action,
+                    raw_context=raw_context,
+                )
+            )
+
+            # Send evaluation result directly to this client
+            try:
+                await ws.send_text(json.dumps({
+                    "type": "evaluation_result",
+                    "data": eval_result
+                }))
+            except Exception as e:
+                logger.error("Failed to send eval result: %s", e)
+
+            await broadcast_pipeline_event({
+                "step": "📊 Evaluation complete",
+                "status": "completed",
+                "detail": f"Overall: {round(eval_result.get('overall_score', 0) * 100)}% | Engine: {eval_result.get('evaluation_engine', '?')}",
+                "agent_id": agent.agent_id,
+                "agent_type": agent_name,
+                "timestamp": datetime.utcnow().isoformat()
+            })
 
             # ── Record history ──────────────────────────────────
             run_record = {

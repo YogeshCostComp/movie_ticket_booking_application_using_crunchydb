@@ -1,12 +1,11 @@
 services:
   - type: web
     name: sre-agent
-    runtime: python
+    runtime: docker
     region: oregon
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
-    rootDir: sre-agent
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false
@@ -14,5 +13,14 @@ services:
         value: https://sre-mcp-server.260m2gai7zqb.us-south.codeengine.appdomain.cloud
       - key: MCP_API_KEY
         value: sre-mcp-secret-key-2026
-      - key: PYTHON_VERSION
-        value: "3.11.0"
+      # IBM watsonx.governance — required for evaluation
+      - key: WATSONX_APIKEY
+        sync: false
+      - key: WATSONX_REGION
+        value: au-syd
+      - key: WXG_SERVICE_INSTANCE_ID
+        sync: false
+      - key: WXG_DATA_MART_ID
+        sync: false
+      - key: WXG_CONTAINER_ID
+        sync: false

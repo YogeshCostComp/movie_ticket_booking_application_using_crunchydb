@@ -53,6 +53,45 @@ Keep it professional but easy to scan quickly.
 If there are errors, suggest potential actions."""
 
 
+AUTONOMOUS_SYSTEM_PROMPT = """You are an Autonomous SRE Agent operating in a ReAct (Reason + Act) loop.
+Your mission: fully resolve the user's SRE goal by chaining tool calls autonomously — one step at a time.
+
+Available tools (agents):
+  log_agent        — get_error_logs, get_recent_logs, search_logs
+  health_agent     — check_all, check_app, check_database
+  monitoring_agent — start, stop, status
+  runbook_agent    — start, stop, status
+  trace_agent      — get_recent_traces, get_slow_endpoints, get_trace_details
+  dashboard_agent  — get_dashboard
+  deployment_agent — check_status, get_deployment_history, restart_app, stop_app, start_app
+
+At EVERY step respond ONLY with valid JSON — no markdown, no extra text.
+
+FORMAT A — take a tool action:
+{
+  "type": "action",
+  "thought": "Explain why you need this information and what you expect to learn",
+  "agent": "<agent_name>",
+  "action": "<action_name>",
+  "params": { ... }
+}
+
+FORMAT B — final answer (when you have gathered enough data):
+{
+  "type": "final_answer",
+  "thought": "Explain why no further tool calls are needed",
+  "summary": "Comprehensive markdown report with all findings and recommendations"
+}
+
+Autonomous reasoning rules:
+- ALWAYS include a "thought" field that shows your internal reasoning before acting.
+- Chain agents intelligently: e.g. health check → if issues found → check logs → if errors → check traces.
+- Do NOT repeat the same agent+action combination if you already have that result.
+- Prefer targeted follow-up queries over re-running broad checks.
+- Decide "final_answer" when: (a) the goal is clearly resolved, (b) you have enough evidence, OR (c) you have run 4+ steps.
+- In your final_answer summary, always include: findings, root cause (if any), recommendations."""
+
+
 class LLMBrain:
     """Anthropic Claude-based reasoning engine for the SRE orchestrator."""
 
@@ -115,3 +154,74 @@ class LLMBrain:
         except Exception as e:
             logger.error("LLM formatting failed: %s", e)
             return f"**Raw Result:**\n```json\n{json.dumps(raw_data, indent=2, default=str)[:2000]}\n```"
+
+    def autonomous_think(self, goal: str, observations: list) -> dict:
+        """
+        Autonomous ReAct step.
+
+        Given the original user goal and a list of past observations
+        (each with 'action_taken' and 'result'), returns either:
+          {"type": "action",       "thought": ..., "agent": ..., "action": ..., "params": ...}
+          {"type": "final_answer", "thought": ..., "summary": ...}
+        """
+        text = ""
+        try:
+            if not observations:
+                messages = [{
+                    "role": "user",
+                    "content": (
+                        f"User Goal: {goal}\n\n"
+                        "This is your first step. Think about what information you need "
+                        "to fully resolve this goal and choose the best first tool to call."
+                    )
+                }]
+            else:
+                messages = [{"role": "user", "content": f"User Goal: {goal}"}]
+                for i, obs in enumerate(observations):
+                    messages.append({
+                        "role": "assistant",
+                        "content": json.dumps(obs["action_taken"])
+                    })
+                    is_last = (i == len(observations) - 1)
+                    suffix = (
+                        "\n\nYou now have the above observations. "
+                        "Reason carefully: is the goal fully resolved? "
+                        "If yes, provide a final_answer. If not, what is the next best tool call?"
+                        if is_last else ""
+                    )
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            f"Observation {i + 1}: "
+                            f"{json.dumps(obs['result'], default=str)[:1500]}{suffix}"
+                        )
+                    })
+
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=800,
+                system=AUTONOMOUS_SYSTEM_PROMPT,
+                messages=messages
+            )
+            text = response.content[0].text.strip()
+            # Strip potential markdown code fences
+            if text.startswith("```"):
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+                text = text.strip()
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            logger.error("Failed to parse autonomous thought: %s | raw=%s", e, text[:300])
+            return {
+                "type": "final_answer",
+                "thought": f"JSON parse error — {e}",
+                "summary": f"Autonomous reasoning hit a parse error. Raw output:\n```\n{text[:400]}\n```"
+            }
+        except Exception as e:
+            logger.error("autonomous_think failed: %s", e)
+            return {
+                "type": "final_answer",
+                "thought": f"Unexpected error: {e}",
+                "summary": f"Autonomous agent error: {str(e)}"
+            }

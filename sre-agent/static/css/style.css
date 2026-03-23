@@ -1130,3 +1130,448 @@ body {
         border-top: 1px solid var(--border);
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Autonomous ReAct Flow Diagram
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Keyframes ─────────────────────────────────────────────────────── */
+@keyframes flowDot {
+    0%   { left: 0%;   opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { left: 100%; opacity: 0; }
+}
+@keyframes flowDotRev {
+    0%   { right: 0%;  opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { right: 100%; opacity: 0; }
+}
+@keyframes nodeGlow {
+    0%, 100% { box-shadow: 0 0 0 0 transparent; }
+    50%       { box-shadow: 0 0 18px 4px var(--node-color, #6366f1); }
+}
+@keyframes pillBounce {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-2px); }
+}
+@keyframes loopSpin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+@keyframes reactPulse {
+    0%, 100% { transform: scale(1);    opacity: 0.9; }
+    50%       { transform: scale(1.07); opacity: 1; }
+}
+@keyframes stripSlide {
+    from { opacity: 0; transform: translateX(-6px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Bar wrapper ───────────────────────────────────────────────────── */
+.flow-diagram-bar {
+    background: linear-gradient(180deg, #13152a 0%, #0f1117 100%);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    overflow: hidden;
+    transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flow-diagram-bar.collapsed .flow-diagram-content {
+    display: none;
+}
+
+.flow-diagram-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 24px;
+    background: rgba(99, 102, 241, 0.06);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.flow-diagram-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+}
+
+.flow-diagram-badge {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: rgba(99, 102, 241, 0.2);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    color: var(--accent-light);
+    animation: reactPulse 2.8s ease-in-out infinite;
+}
+
+.flow-diagram-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+.flow-diagram-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.flow-diagram-content {
+    padding: 16px 24px 10px;
+}
+
+/* ── Node row ──────────────────────────────────────────────────────── */
+.flow-nodes {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+/* ── Individual nodes ──────────────────────────────────────────────── */
+.flow-node {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    min-width: 104px;
+    flex-shrink: 0;
+    transition: border-color 0.3s, transform 0.2s;
+    overflow: hidden;
+}
+.flow-node:hover { transform: translateY(-2px); }
+
+.node-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+.flow-node:hover .node-glow { opacity: 1; }
+
+.node-icon { font-size: 20px; line-height: 1; }
+.node-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-align: center;
+    white-space: nowrap;
+}
+.node-sub {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* ── Node colour themes ────────────────────────────────────────────── */
+.node-user {
+    --node-color: #8b92b0;
+    border-color: #2a2f45;
+}
+.node-user:hover { border-color: #8b92b0; }
+.node-user .node-glow { background: radial-gradient(ellipse at center, rgba(139,146,176,0.08) 0%, transparent 70%); }
+
+.node-orchestrator {
+    --node-color: #818cf8;
+    border-color: rgba(129, 140, 248, 0.3);
+    animation: nodeGlow 3.5s ease-in-out infinite;
+}
+.node-orchestrator .node-glow { background: radial-gradient(ellipse at center, rgba(129,140,248,0.08) 0%, transparent 70%); }
+
+.node-llm {
+    --node-color: #38bdf8;
+    border-color: rgba(56, 189, 248, 0.4);
+    animation: nodeGlow 2.8s ease-in-out infinite;
+    animation-delay: 0.5s;
+}
+.node-llm .node-glow { background: radial-gradient(ellipse at center, rgba(56,189,248,0.1) 0%, transparent 70%); }
+
+.node-agents {
+    --node-color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.35);
+    animation: nodeGlow 3.2s ease-in-out infinite;
+    animation-delay: 1s;
+    min-width: 130px;
+}
+.node-agents .node-glow { background: radial-gradient(ellipse at center, rgba(245,158,11,0.08) 0%, transparent 70%); }
+
+.node-final {
+    --node-color: #22c55e;
+    border-color: rgba(34, 197, 94, 0.35);
+    animation: nodeGlow 3s ease-in-out infinite;
+    animation-delay: 1.5s;
+}
+.node-final .node-glow { background: radial-gradient(ellipse at center, rgba(34,197,94,0.1) 0%, transparent 70%); }
+
+/* ── ReAct badge on LLM node ───────────────────────────────────────── */
+.react-badge {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 1px 7px;
+    border-radius: 12px;
+    background: rgba(56, 189, 248, 0.15);
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    color: #7dd3fc;
+    margin-bottom: 2px;
+    animation: reactPulse 2s ease-in-out infinite;
+}
+
+/* ── Agent pills ───────────────────────────────────────────────────── */
+.agent-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    justify-content: center;
+    margin-top: 4px;
+}
+.agent-pill {
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    color: #fcd34d;
+    white-space: nowrap;
+    animation: pillBounce 2.5s ease-in-out infinite;
+}
+.agent-pill:nth-child(2) { animation-delay: 0.2s; }
+.agent-pill:nth-child(3) { animation-delay: 0.4s; }
+.agent-pill:nth-child(4) { animation-delay: 0.6s; }
+.agent-pill:nth-child(5) { animation-delay: 0.8s; }
+
+/* ── Connectors (single-direction) ────────────────────────────────── */
+.flow-connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 6px;
+    flex-shrink: 0;
+    min-width: 56px;
+}
+
+.connector-line {
+    position: relative;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, var(--border) 0%, var(--border-light) 100%);
+    border-radius: 2px;
+    overflow: visible;
+}
+
+.connector-dot {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-light);
+    box-shadow: 0 0 8px var(--accent);
+    animation: flowDot 2.2s linear infinite;
+}
+.dot1 { animation-delay: 0s;    background: #a5b4fc; box-shadow: 0 0 8px #6366f1; }
+.dot2 { animation-delay: 0.55s; background: #7dd3fc; box-shadow: 0 0 8px #38bdf8; }
+.dot3 { animation-delay: 1.1s;  background: #86efac; box-shadow: 0 0 8px #22c55e; }
+
+.connector-arrow {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: -2px;
+    align-self: flex-end;
+    margin-right: -2px;
+}
+
+.connector-caption {
+    font-size: 9px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    text-align: center;
+    margin-top: 1px;
+}
+
+/* ── Double connector (Act / Observe) ─────────────────────────────── */
+.connector-double {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px;
+    min-width: 72px;
+}
+
+.connector-double-inner {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    gap: 4px;
+}
+
+.double-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+}
+
+.double-line {
+    position: relative;
+    flex: 1;
+    height: 2px;
+    background: var(--border-light);
+    border-radius: 2px;
+    overflow: visible;
+}
+
+.double-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    letter-spacing: 0.03em;
+}
+
+.row-act   .double-line { background: linear-gradient(90deg, rgba(56,189,248,0.2), rgba(245,158,11,0.4)); }
+.row-observe .double-line { background: linear-gradient(90deg, rgba(245,158,11,0.4), rgba(56,189,248,0.2)); }
+.row-act   .double-label { color: #7dd3fc; }
+.row-observe .double-label { color: #fcd34d; }
+
+.dot-act {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #7dd3fc;
+    box-shadow: 0 0 8px #38bdf8;
+    animation: flowDot 1.8s linear infinite;
+}
+.dot-obs {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #fbbf24;
+    box-shadow: 0 0 8px #f59e0b;
+    animation: flowDotRev 1.8s linear infinite;
+    animation-delay: 0.4s;
+}
+
+/* ── ReAct loop arc SVG ────────────────────────────────────────────── */
+.react-loop-arc {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    margin-top: 2px;
+}
+.react-loop-arc svg {
+    width: 100%;
+    height: 22px;
+    overflow: visible;
+}
+.arc-label {
+    font-size: 8px;
+    color: rgba(99, 102, 241, 0.6);
+    letter-spacing: 0.04em;
+    text-align: center;
+    margin-top: -2px;
+}
+
+/* ── ReAct loop step strip ─────────────────────────────────────────── */
+.react-loop-strip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0 2px;
+    flex-wrap: wrap;
+    animation: stripSlide 0.5s ease;
+}
+
+.loop-step {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+}
+
+.loop-step.ls-active {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.3);
+}
+
+.ls-num {
+    font-size: 9px;
+    font-weight: 700;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.loop-step.ls-active .ls-num {
+    background: rgba(99, 102, 241, 0.25);
+    border-color: var(--accent);
+    color: var(--accent-light);
+}
+
+.ls-text {
+    font-size: 10px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.ls-sep {
+    font-size: 11px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.loop-back-arrow {
+    font-size: 13px;
+    color: var(--accent);
+    cursor: default;
+    animation: reactPulse 2s ease-in-out infinite;
+    padding: 0 2px;
+}
+
+/* ── Responsive: hide diagram on very small screens ─────────────────── */
+@media (max-width: 700px) {
+    .flow-nodes { gap: 2px; }
+    .flow-node { min-width: 80px; padding: 8px 8px; }
+    .connector-caption, .double-label, .arc-label { display: none; }
+}

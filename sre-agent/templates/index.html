@@ -18,7 +18,7 @@
                 <div class="logo">🤖</div>
                 <div class="header-text">
                     <h1>SRE Agent Orchestrator</h1>
-                    <span class="subtitle">Ephemeral Agent Architecture — Powered by Claude + MCP</span>
+                    <span class="subtitle">Autonomous Ephemeral Agents — ReAct Loop · Claude · MCP</span>
                 </div>
             </div>
             <div class="header-right">
@@ -32,6 +32,139 @@
                 </div>
             </div>
         </header>
+
+        <!-- ── Autonomous ReAct Flow Diagram ─────────────────── -->
+        <div class="flow-diagram-bar" id="flowDiagramBar">
+            <div class="flow-diagram-header">
+                <div class="flow-diagram-title">
+                    <span class="flow-diagram-badge">AUTONOMOUS</span>
+                    <span>ReAct Flow — Orchestrator → LLM Brain → Ephemeral Agents</span>
+                </div>
+                <button class="flow-diagram-toggle" id="flowToggle" title="Collapse diagram">▲ Hide</button>
+            </div>
+            <div class="flow-diagram-content" id="flowDiagramContent">
+                <div class="flow-nodes">
+
+                    <!-- Node: User -->
+                    <div class="flow-node node-user">
+                        <div class="node-glow"></div>
+                        <div class="node-icon">👤</div>
+                        <div class="node-label">User</div>
+                        <div class="node-sub">Natural language goal</div>
+                    </div>
+
+                    <!-- Arrow 1 -->
+                    <div class="flow-connector">
+                        <div class="connector-line">
+                            <div class="connector-dot dot1"></div>
+                        </div>
+                        <div class="connector-arrow">▶</div>
+                        <div class="connector-caption">query</div>
+                    </div>
+
+                    <!-- Node: Orchestrator -->
+                    <div class="flow-node node-orchestrator">
+                        <div class="node-glow"></div>
+                        <div class="node-icon">🤖</div>
+                        <div class="node-label">Orchestrator</div>
+                        <div class="node-sub">FastAPI · WebSocket</div>
+                    </div>
+
+                    <!-- Arrow 2 -->
+                    <div class="flow-connector">
+                        <div class="connector-line">
+                            <div class="connector-dot dot2"></div>
+                        </div>
+                        <div class="connector-arrow">▶</div>
+                        <div class="connector-caption">think</div>
+                    </div>
+
+                    <!-- Node: LLM Brain -->
+                    <div class="flow-node node-llm">
+                        <div class="node-glow"></div>
+                        <div class="react-badge">🔄 ReAct Loop</div>
+                        <div class="node-icon">🧠</div>
+                        <div class="node-label">LLM Brain</div>
+                        <div class="node-sub">Claude · Reason &amp; Decide</div>
+                    </div>
+
+                    <!-- Double arrow: Act ↕ Observe -->
+                    <div class="flow-connector connector-double">
+                        <div class="connector-double-inner">
+                            <div class="double-row row-act">
+                                <div class="double-line">
+                                    <div class="connector-dot dot-act"></div>
+                                </div>
+                                <span class="double-label">▶ act</span>
+                            </div>
+                            <div class="double-row row-observe">
+                                <span class="double-label">observe ◀</span>
+                                <div class="double-line">
+                                    <div class="connector-dot dot-obs"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="react-loop-arc">
+                            <svg viewBox="0 0 80 30" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M 5 15 Q 40 2 75 15" fill="none" stroke="#6366f1" stroke-width="1.5"
+                                      stroke-dasharray="4 3" opacity="0.6">
+                                    <animate attributeName="stroke-dashoffset" from="0" to="-28"
+                                             dur="1.2s" repeatCount="indefinite"/>
+                                </path>
+                                <polygon points="75,12 79,15 75,18" fill="#6366f1" opacity="0.7"/>
+                            </svg>
+                            <span class="arc-label">up to 5 steps</span>
+                        </div>
+                    </div>
+
+                    <!-- Node: Ephemeral Agents -->
+                    <div class="flow-node node-agents">
+                        <div class="node-glow"></div>
+                        <div class="node-icon">⚡</div>
+                        <div class="node-label">Ephemeral Agents</div>
+                        <div class="node-sub">Spawn · Execute · Destroy</div>
+                        <div class="agent-pills">
+                            <span class="agent-pill">🏥 Health</span>
+                            <span class="agent-pill">📋 Logs</span>
+                            <span class="agent-pill">📊 Dash</span>
+                            <span class="agent-pill">🔗 Traces</span>
+                            <span class="agent-pill">🚀 Deploy</span>
+                        </div>
+                    </div>
+
+                    <!-- Arrow 3: resolved -->
+                    <div class="flow-connector">
+                        <div class="connector-line">
+                            <div class="connector-dot dot3"></div>
+                        </div>
+                        <div class="connector-arrow">▶</div>
+                        <div class="connector-caption">resolved</div>
+                    </div>
+
+                    <!-- Node: Final Answer -->
+                    <div class="flow-node node-final">
+                        <div class="node-glow"></div>
+                        <div class="node-icon">✅</div>
+                        <div class="node-label">Final Answer</div>
+                        <div class="node-sub">Synthesized report</div>
+                    </div>
+
+                </div>
+
+                <!-- Loop explanation strip -->
+                <div class="react-loop-strip">
+                    <div class="loop-step"><span class="ls-num">1</span><span class="ls-text">Receive goal</span></div>
+                    <div class="ls-sep">→</div>
+                    <div class="loop-step ls-active"><span class="ls-num">2</span><span class="ls-text">Reason (thought)</span></div>
+                    <div class="ls-sep">→</div>
+                    <div class="loop-step ls-active"><span class="ls-num">3</span><span class="ls-text">Spawn agent (act)</span></div>
+                    <div class="ls-sep">→</div>
+                    <div class="loop-step ls-active"><span class="ls-num">4</span><span class="ls-text">Collect observation</span></div>
+                    <div class="ls-sep loop-back-arrow" title="Loops back to step 2">↺ loop</div>
+                    <div class="loop-step"><span class="ls-num">5</span><span class="ls-text">Goal resolved → answer</span></div>
+                </div>
+            </div>
+        </div>
 
         <!-- ── Main Content: Chat + Pipeline ─────────────────── -->
         <div class="main-content">

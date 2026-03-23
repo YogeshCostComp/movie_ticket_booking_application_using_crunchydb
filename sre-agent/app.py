@@ -45,6 +45,7 @@ mcp = MCPClient()
 brain = LLMBrain()
 evaluator = WatsonxEvaluator()
 AGENT_COOLDOWN_SECONDS = int(os.environ.get("AGENT_COOLDOWN_SECONDS", 120))
+MAX_AUTONOMOUS_STEPS = int(os.environ.get("MAX_AUTONOMOUS_STEPS", 5))
 
 # Agent registry
 AGENT_CLASSES = {
@@ -389,31 +390,60 @@ async def websocket_endpoint(ws: WebSocket):
 # ── Quick POST endpoint (for non-WebSocket clients) ────────────────
 @app.post("/api/query")
 async def query(request: Request):
-    """REST alternative to WebSocket for simple queries."""
+    """REST alternative to WebSocket — runs the full autonomous ReAct loop."""
     body = await request.json()
     user_message = body.get("message", "")
     if not user_message:
         return JSONResponse({"error": "message is required"}, status_code=400)
 
-    intent = brain.classify_intent(user_message)
-    agent_name = intent.get("agent", "health_agent")
-    action = intent.get("action", "check_all")
-    params = intent.get("params", {})
+    observations: list = []
+    final_response = ""
+    last_agent_name = "health_agent"
+    last_action = "check_all"
 
-    agent_cls = AGENT_CLASSES.get(agent_name)
-    if not agent_cls:
-        return JSONResponse({"error": f"Unknown agent: {agent_name}"}, status_code=400)
+    for step_num in range(1, MAX_AUTONOMOUS_STEPS + 1):
+        decision = brain.autonomous_think(user_message, list(observations))
 
-    agent = agent_cls(mcp_client=mcp)
-    result = await agent.run(action, params)
-    formatted = brain.format_response(agent_name, action, result.get("data", result))
+        if decision.get("type") == "final_answer":
+            final_response = decision.get("summary", "")
+            break
+
+        a_name = decision.get("agent", "health_agent")
+        a_action = decision.get("action", "check_all")
+        a_params = decision.get("params", {})
+        last_agent_name = a_name
+        last_action = a_action
+
+        agent_cls = AGENT_CLASSES.get(a_name)
+        if not agent_cls:
+            observations.append({
+                "action_taken": decision,
+                "result": {"error": f"Unknown agent: {a_name}"}
+            })
+            continue
+
+        agent = agent_cls(mcp_client=mcp)
+        result = await agent.run(a_action, a_params)
+        registry.deregister(agent, result)
+        observations.append({
+            "action_taken": decision,
+            "result": result.get("data", result)
+        })
+
+    if not final_response:
+        last_result = observations[-1]["result"] if observations else {}
+        final_response = brain.format_response(last_agent_name, last_action, last_result)
 
     return {
-        "agent": agent_name,
-        "action": action,
-        "reasoning": intent.get("reasoning", ""),
-        "result": formatted,
-        "raw": result,
+        "autonomous": True,
+        "steps_taken": len(observations),
+        "last_agent": last_agent_name,
+        "last_action": last_action,
+        "result": final_response,
+        "observations": [
+            {"step": i + 1, "agent": o["action_taken"].get("agent"), "thought": o["action_taken"].get("thought", "")[:120]}
+            for i, o in enumerate(observations)
+        ],
         "timestamp": datetime.utcnow().isoformat()
     }
 

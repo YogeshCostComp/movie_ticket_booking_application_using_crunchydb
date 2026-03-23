@@ -452,6 +452,23 @@ document.querySelectorAll('.hint-chip').forEach(chip => {
     });
 });
 
+// ── Flow Diagram Toggle ─────────────────────────────────────────────
+const flowToggle = document.getElementById('flowToggle');
+const flowDiagramBar = document.getElementById('flowDiagramBar');
+if (flowToggle && flowDiagramBar) {
+    // Restore collapsed state across page refreshes
+    const isCollapsed = sessionStorage.getItem('sre_flow_collapsed') === '1';
+    if (isCollapsed) {
+        flowDiagramBar.classList.add('collapsed');
+        flowToggle.textContent = '▼ Show';
+    }
+    flowToggle.addEventListener('click', () => {
+        const collapsed = flowDiagramBar.classList.toggle('collapsed');
+        flowToggle.textContent = collapsed ? '▼ Show' : '▲ Hide';
+        sessionStorage.setItem('sre_flow_collapsed', collapsed ? '1' : '0');
+    });
+}
+
 // ── Inspect Panel ──────────────────────────────────────────────────
 let inspectPollTimer = null;
 

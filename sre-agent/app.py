@@ -124,7 +124,7 @@ async def send_chat_response(ws: WebSocket, message: str, agent_type: str = "", 
 # ── Routes ──────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html")
 
 
 @app.get("/health")
@@ -191,11 +191,11 @@ async def get_agent_detail(agent_id: str):
 @app.get("/inspect/{agent_id}", response_class=HTMLResponse)
 async def inspect_agent(request: Request, agent_id: str):
     """Agent inspection dashboard — live proof of agent lifecycle."""
-    return templates.TemplateResponse("inspect.html", {
-        "request": request,
-        "agent_id": agent_id,
-        "cooldown_seconds": AGENT_COOLDOWN_SECONDS
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="inspect.html",
+        context={"agent_id": agent_id, "cooldown_seconds": AGENT_COOLDOWN_SECONDS}
+    )
 
 
 # ── WebSocket endpoint ─────────────────────────────────────────────

@@ -36,133 +36,81 @@
         <!-- ── Autonomous ReAct Flow Diagram ─────────────────── -->
         <div class="flow-diagram-bar" id="flowDiagramBar">
             <div class="flow-diagram-header">
-                <div class="flow-diagram-title">
-                    <span class="flow-diagram-badge">AUTONOMOUS</span>
-                    <span>ReAct Flow — Orchestrator → LLM Brain → Ephemeral Agents</span>
-                </div>
-                <button class="flow-diagram-toggle" id="flowToggle" title="Collapse diagram">▲ Hide</button>
+                <span class="flow-diagram-badge">AUTONOMOUS</span>
+                <span class="flow-diagram-title">ReAct Flow — User → Orchestrator → LLM Brain ⇄ Ephemeral Agents → Answer</span>
+                <button class="flow-diagram-toggle" id="flowToggle">▲ Hide</button>
             </div>
-            <div class="flow-diagram-content" id="flowDiagramContent">
-                <div class="flow-nodes">
+            <div class="flow-diagram-svg">
+                <svg viewBox="0 0 840 72" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:72px;">
+                    <defs>
+                        <marker id="arrowR" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+                            <polygon points="0,0 7,3.5 0,7" fill="#4b5276"/>
+                        </marker>
+                        <marker id="arrowRB" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+                            <polygon points="0,0 7,3.5 0,7" fill="#38bdf8" opacity="0.7"/>
+                        </marker>
+                        <marker id="arrowLO" markerWidth="7" markerHeight="7" refX="1" refY="3.5" orient="auto">
+                            <polygon points="7,0 0,3.5 7,7" fill="#f59e0b" opacity="0.7"/>
+                        </marker>
+                    </defs>
 
-                    <!-- Node: User -->
-                    <div class="flow-node node-user">
-                        <div class="node-glow"></div>
-                        <div class="node-icon">👤</div>
-                        <div class="node-label">User</div>
-                        <div class="node-sub">Natural language goal</div>
-                    </div>
+                    <!-- User -->
+                    <rect x="8" y="16" width="92" height="40" rx="7" fill="#1e2235" stroke="#363c58" stroke-width="1"/>
+                    <text x="54" y="32" text-anchor="middle" font-family="Inter,sans-serif" fill="#c7d2fe" font-size="10" font-weight="600">👤 User</text>
+                    <text x="54" y="47" text-anchor="middle" font-family="Inter,sans-serif" fill="#5e6484" font-size="7.5">Natural language goal</text>
 
-                    <!-- Arrow 1 -->
-                    <div class="flow-connector">
-                        <div class="connector-line">
-                            <div class="connector-dot dot1"></div>
-                        </div>
-                        <div class="connector-arrow">▶</div>
-                        <div class="connector-caption">query</div>
-                    </div>
+                    <!-- arrow 1 -->
+                    <line x1="100" y1="36" x2="144" y2="36" stroke="#2a2f45" stroke-width="1.5" marker-end="url(#arrowR)"/>
+                    <text x="122" y="30" text-anchor="middle" font-family="Inter,sans-serif" fill="#5e6484" font-size="7">query</text>
+                    <circle cx="0" cy="0" r="3.5" fill="#818cf8"><animateMotion path="M100,36 L144,36" dur="2.2s" repeatCount="indefinite"/></circle>
 
-                    <!-- Node: Orchestrator -->
-                    <div class="flow-node node-orchestrator">
-                        <div class="node-glow"></div>
-                        <div class="node-icon">🤖</div>
-                        <div class="node-label">Orchestrator</div>
-                        <div class="node-sub">FastAPI · WebSocket</div>
-                    </div>
+                    <!-- Orchestrator -->
+                    <rect x="146" y="16" width="122" height="40" rx="7" fill="#1a1b2e" stroke="#4b5276" stroke-width="1.2"/>
+                    <text x="207" y="32" text-anchor="middle" font-family="Inter,sans-serif" fill="#a5b4fc" font-size="10" font-weight="600">🤖 Orchestrator</text>
+                    <text x="207" y="47" text-anchor="middle" font-family="Inter,sans-serif" fill="#5e6484" font-size="7.5">FastAPI · WebSocket</text>
 
-                    <!-- Arrow 2 -->
-                    <div class="flow-connector">
-                        <div class="connector-line">
-                            <div class="connector-dot dot2"></div>
-                        </div>
-                        <div class="connector-arrow">▶</div>
-                        <div class="connector-caption">think</div>
-                    </div>
+                    <!-- arrow 2 -->
+                    <line x1="268" y1="36" x2="308" y2="36" stroke="#2a2f45" stroke-width="1.5" marker-end="url(#arrowR)"/>
+                    <text x="288" y="30" text-anchor="middle" font-family="Inter,sans-serif" fill="#5e6484" font-size="7">think</text>
+                    <circle cx="0" cy="0" r="3.5" fill="#7dd3fc"><animateMotion path="M268,36 L308,36" dur="2.2s" begin="0.7s" repeatCount="indefinite"/></circle>
 
-                    <!-- Node: LLM Brain -->
-                    <div class="flow-node node-llm">
-                        <div class="node-glow"></div>
-                        <div class="react-badge">🔄 ReAct Loop</div>
-                        <div class="node-icon">🧠</div>
-                        <div class="node-label">LLM Brain</div>
-                        <div class="node-sub">Claude · Reason &amp; Decide</div>
-                    </div>
+                    <!-- LLM Brain -->
+                    <rect x="310" y="9" width="142" height="54" rx="7" fill="#0a1525" stroke="#38bdf8" stroke-width="1.3"/>
+                    <text x="381" y="28" text-anchor="middle" font-family="Inter,sans-serif" fill="#7dd3fc" font-size="10" font-weight="700">🧠 LLM Brain</text>
+                    <text x="381" y="41" text-anchor="middle" font-family="Inter,sans-serif" fill="#5e6484" font-size="7.5">Claude · Reason &amp; Decide</text>
+                    <rect x="334" y="49" width="94" height="12" rx="5" fill="rgba(56,189,248,0.12)" stroke="rgba(56,189,248,0.35)" stroke-width="0.8"/>
+                    <text x="381" y="58" text-anchor="middle" font-family="Inter,sans-serif" fill="#38bdf8" font-size="7.2">🔄 ReAct Loop</text>
 
-                    <!-- Double arrow: Act ↕ Observe -->
-                    <div class="flow-connector connector-double">
-                        <div class="connector-double-inner">
-                            <div class="double-row row-act">
-                                <div class="double-line">
-                                    <div class="connector-dot dot-act"></div>
-                                </div>
-                                <span class="double-label">▶ act</span>
-                            </div>
-                            <div class="double-row row-observe">
-                                <span class="double-label">observe ◀</span>
-                                <div class="double-line">
-                                    <div class="connector-dot dot-obs"></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="react-loop-arc">
-                            <svg viewBox="0 0 80 30" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M 5 15 Q 40 2 75 15" fill="none" stroke="#6366f1" stroke-width="1.5"
-                                      stroke-dasharray="4 3" opacity="0.6">
-                                    <animate attributeName="stroke-dashoffset" from="0" to="-28"
-                                             dur="1.2s" repeatCount="indefinite"/>
-                                </path>
-                                <polygon points="75,12 79,15 75,18" fill="#6366f1" opacity="0.7"/>
-                            </svg>
-                            <span class="arc-label">up to 5 steps</span>
-                        </div>
-                    </div>
+                    <!-- ⇄ act / observe -->
+                    <line x1="452" y1="29" x2="493" y2="29" stroke="#38bdf8" stroke-width="1.2" stroke-opacity="0.6" stroke-dasharray="4 2" marker-end="url(#arrowRB)"/>
+                    <text x="472" y="23" text-anchor="middle" font-family="Inter,sans-serif" fill="#38bdf8" font-size="6.5">▶ act</text>
+                    <line x1="493" y1="44" x2="452" y2="44" stroke="#f59e0b" stroke-width="1.2" stroke-opacity="0.6" stroke-dasharray="4 2" marker-end="url(#arrowLO)"/>
+                    <text x="472" y="58" text-anchor="middle" font-family="Inter,sans-serif" fill="#f59e0b" font-size="6.5">observe ◀</text>
+                    <!-- loop arc -->
+                    <path d="M452,9 Q472,-1 493,9" fill="none" stroke="#6366f1" stroke-width="1.2" stroke-opacity="0.55" stroke-dasharray="5 3">
+                        <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="1.4s" repeatCount="indefinite"/>
+                    </path>
+                    <text x="472" y="6" text-anchor="middle" font-family="Inter,sans-serif" fill="rgba(99,102,241,0.7)" font-size="6">↺ up to 5 steps</text>
+                    <!-- animated dots on act/observe -->
+                    <circle cx="0" cy="0" r="2.8" fill="#7dd3fc" opacity="0.9"><animateMotion path="M452,29 L493,29" dur="1.6s" repeatCount="indefinite"/></circle>
+                    <circle cx="0" cy="0" r="2.8" fill="#fbbf24" opacity="0.9"><animateMotion path="M493,44 L452,44" dur="1.6s" begin="0.5s" repeatCount="indefinite"/></circle>
 
-                    <!-- Node: Ephemeral Agents -->
-                    <div class="flow-node node-agents">
-                        <div class="node-glow"></div>
-                        <div class="node-icon">⚡</div>
-                        <div class="node-label">Ephemeral Agents</div>
-                        <div class="node-sub">Spawn · Execute · Destroy</div>
-                        <div class="agent-pills">
-                            <span class="agent-pill">🏥 Health</span>
-                            <span class="agent-pill">📋 Logs</span>
-                            <span class="agent-pill">📊 Dash</span>
-                            <span class="agent-pill">🔗 Traces</span>
-                            <span class="agent-pill">🚀 Deploy</span>
-                        </div>
-                    </div>
+                    <!-- Ephemeral Agents -->
+                    <rect x="495" y="9" width="158" height="54" rx="7" fill="#150f05" stroke="#f59e0b" stroke-width="1.2" stroke-opacity="0.55"/>
+                    <text x="574" y="28" text-anchor="middle" font-family="Inter,sans-serif" fill="#fcd34d" font-size="10" font-weight="700">⚡ Ephemeral Agents</text>
+                    <text x="574" y="41" text-anchor="middle" font-family="Inter,sans-serif" fill="#5e6484" font-size="7">Spawn · Execute · Destroy</text>
+                    <text x="574" y="55" text-anchor="middle" font-family="Inter,sans-serif" fill="rgba(245,158,11,0.55)" font-size="6.5">🏥 Health · 📋 Logs · 🔗 Traces · 🚀 Deploy</text>
 
-                    <!-- Arrow 3: resolved -->
-                    <div class="flow-connector">
-                        <div class="connector-line">
-                            <div class="connector-dot dot3"></div>
-                        </div>
-                        <div class="connector-arrow">▶</div>
-                        <div class="connector-caption">resolved</div>
-                    </div>
+                    <!-- arrow 3 -->
+                    <line x1="653" y1="36" x2="691" y2="36" stroke="#2a2f45" stroke-width="1.5" marker-end="url(#arrowR)"/>
+                    <text x="672" y="30" text-anchor="middle" font-family="Inter,sans-serif" fill="#5e6484" font-size="7">resolved</text>
+                    <circle cx="0" cy="0" r="3.5" fill="#86efac"><animateMotion path="M653,36 L691,36" dur="2.2s" begin="1.4s" repeatCount="indefinite"/></circle>
 
-                    <!-- Node: Final Answer -->
-                    <div class="flow-node node-final">
-                        <div class="node-glow"></div>
-                        <div class="node-icon">✅</div>
-                        <div class="node-label">Final Answer</div>
-                        <div class="node-sub">Synthesized report</div>
-                    </div>
-
-                </div>
-
-                <!-- Loop explanation strip -->
-                <div class="react-loop-strip">
-                    <div class="loop-step"><span class="ls-num">1</span><span class="ls-text">Receive goal</span></div>
-                    <div class="ls-sep">→</div>
-                    <div class="loop-step ls-active"><span class="ls-num">2</span><span class="ls-text">Reason (thought)</span></div>
-                    <div class="ls-sep">→</div>
-                    <div class="loop-step ls-active"><span class="ls-num">3</span><span class="ls-text">Spawn agent (act)</span></div>
-                    <div class="ls-sep">→</div>
-                    <div class="loop-step ls-active"><span class="ls-num">4</span><span class="ls-text">Collect observation</span></div>
-                    <div class="ls-sep loop-back-arrow" title="Loops back to step 2">↺ loop</div>
-                    <div class="loop-step"><span class="ls-num">5</span><span class="ls-text">Goal resolved → answer</span></div>
-                </div>
+                    <!-- Final Answer -->
+                    <rect x="693" y="16" width="138" height="40" rx="7" fill="#0a1a0a" stroke="#22c55e" stroke-width="1.2" stroke-opacity="0.55"/>
+                    <text x="762" y="32" text-anchor="middle" font-family="Inter,sans-serif" fill="#86efac" font-size="10" font-weight="600">✅ Final Answer</text>
+                    <text x="762" y="47" text-anchor="middle" font-family="Inter,sans-serif" fill="#5e6484" font-size="7.5">Synthesized report</text>
+                </svg>
             </div>
         </div>
 

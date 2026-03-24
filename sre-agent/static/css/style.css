@@ -1132,80 +1132,77 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   Autonomous ReAct Flow Banner
+   ReAct Autonomous Step Types (pipeline panel)
    ═══════════════════════════════════════════════════════════════════ */
 
-@keyframes fBadgePulse {
-    0%, 100% { opacity: 0.75; }
-    50%       { opacity: 1; }
+/* 💭 Thought / Reasoning */
+.pipeline-step.step-thought {
+    background: rgba(99, 102, 241, 0.07);
+    border-left: 3px solid rgba(99, 102, 241, 0.55);
 }
-
-.flow-diagram-bar {
-    flex-shrink: 0;
-    background: #0d0f1c;
-    border-bottom: 1px solid var(--border);
-    overflow: hidden;
-    max-height: 110px;
-    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+.pipeline-step.step-thought .step-name {
+    color: #a5b4fc;
 }
-
-.flow-diagram-bar.collapsed {
-    max-height: 30px;
-}
-
-.flow-diagram-header {
-    height: 28px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 0 20px;
-    background: rgba(99, 102, 241, 0.06);
-    border-bottom: 1px solid rgba(99, 102, 241, 0.12);
-}
-
-.flow-diagram-badge {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    padding: 2px 7px;
-    border-radius: 10px;
-    background: rgba(99, 102, 241, 0.18);
-    border: 1px solid rgba(99, 102, 241, 0.4);
-    color: var(--accent-light);
-    animation: fBadgePulse 2.8s ease-in-out infinite;
-    white-space: nowrap;
-}
-
-.flow-diagram-title {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.flow-diagram-toggle {
-    margin-left: auto;
-    background: none;
-    border: 1px solid var(--border);
+.step-thought-text {
+    color: #c7d2fe !important;
+    font-style: italic;
+    font-size: 11.5px;
+    margin-top: 5px;
+    padding: 7px 10px;
+    background: rgba(99, 102, 241, 0.1);
     border-radius: 6px;
-    padding: 2px 10px;
-    font-size: 10px;
-    color: var(--text-muted);
-    cursor: pointer;
-    white-space: nowrap;
-    transition: background 0.2s, color 0.2s;
-}
-.flow-diagram-toggle:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+    border: 1px solid rgba(99, 102, 241, 0.22);
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
-.flow-diagram-svg {
-    height: 80px;
-    padding: 4px 16px;
-    overflow: hidden;
+/* 📋 Observation */
+.pipeline-step.step-observation {
+    background: rgba(245, 158, 11, 0.06);
+    border-left: 3px solid rgba(245, 158, 11, 0.5);
+}
+.pipeline-step.step-observation .step-name {
+    color: #fcd34d;
+}
+
+/* ⚡ Spawn agent */
+.pipeline-step.step-spawn {
+    background: rgba(56, 189, 248, 0.06);
+    border-left: 3px solid rgba(56, 189, 248, 0.5);
+}
+.pipeline-step.step-spawn .step-name {
+    color: #7dd3fc;
+    font-weight: 600;
+}
+
+/* ✅ Goal resolved */
+.pipeline-step.step-resolved {
+    background: rgba(34, 197, 94, 0.06);
+    border-left: 3px solid rgba(34, 197, 94, 0.5);
+}
+.pipeline-step.step-resolved .step-name {
+    color: #86efac;
+    font-weight: 600;
+}
+
+/* 🧠 Synthesizing */
+.pipeline-step.step-synthesize {
+    background: rgba(167, 139, 250, 0.06);
+    border-left: 3px solid rgba(167, 139, 250, 0.5);
+}
+.pipeline-step.step-synthesize .step-name {
+    color: #c4b5fd;
+}
+
+/* ✨ Run complete */
+.pipeline-step.step-complete {
+    background: rgba(52, 211, 153, 0.07);
+    border-left: 3px solid rgba(52, 211, 153, 0.55);
+}
+.pipeline-step.step-complete .step-name {
+    color: #6ee7b7;
+    font-weight: 700;
 }
 
 

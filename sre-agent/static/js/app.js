@@ -96,6 +96,16 @@ function handlePipelineEvent(data) {
     const empty = pipelineSteps.querySelector('.pipeline-empty');
     if (empty) empty.remove();
 
+    // Classify autonomous ReAct step type from the step name emoji prefix
+    const stepName = data.step || '';
+    let stepTypeClass = '';
+    if      (stepName.startsWith('💭')) stepTypeClass = 'step-thought';
+    else if (stepName.startsWith('📋')) stepTypeClass = 'step-observation';
+    else if (stepName.startsWith('⚡')) stepTypeClass = 'step-spawn';
+    else if (stepName.startsWith('✅')) stepTypeClass = 'step-resolved';
+    else if (stepName.startsWith('🧠')) stepTypeClass = 'step-synthesize';
+    else if (stepName.startsWith('✨')) stepTypeClass = 'step-complete';
+
     // Build detail HTML — handle inspect links and cooldown
     let detailHtml = '';
     if (data.inspect_url) {
@@ -113,12 +123,17 @@ function handlePipelineEvent(data) {
                 </div>`;
         }
     } else if (data.detail) {
-        detailHtml = `<div class="step-detail">${escapeHtml(data.detail)}</div>`;
+        if (stepTypeClass === 'step-thought') {
+            // Show LLM reasoning text prominently as a thought bubble
+            detailHtml = `<div class="step-thought-text">${escapeHtml(data.detail)}</div>`;
+        } else {
+            detailHtml = `<div class="step-detail">${escapeHtml(data.detail)}</div>`;
+        }
     }
 
     // Add step
     const step = document.createElement('div');
-    step.className = 'pipeline-step';
+    step.className = 'pipeline-step' + (stepTypeClass ? ' ' + stepTypeClass : '');
     step.innerHTML = `
         <div class="step-indicator ${data.status}">${getStatusIcon(data.status)}</div>
         <div class="step-body">
@@ -451,23 +466,6 @@ document.querySelectorAll('.hint-chip').forEach(chip => {
         chatInput.focus();
     });
 });
-
-// ── Flow Diagram Toggle ─────────────────────────────────────────────
-const flowToggle = document.getElementById('flowToggle');
-const flowDiagramBar = document.getElementById('flowDiagramBar');
-if (flowToggle && flowDiagramBar) {
-    // Restore collapsed state across page refreshes
-    const isCollapsed = sessionStorage.getItem('sre_flow_collapsed') === '1';
-    if (isCollapsed) {
-        flowDiagramBar.classList.add('collapsed');
-        flowToggle.textContent = '▼ Show';
-    }
-    flowToggle.addEventListener('click', () => {
-        const collapsed = flowDiagramBar.classList.toggle('collapsed');
-        flowToggle.textContent = collapsed ? '▼ Show' : '▲ Hide';
-        sessionStorage.setItem('sre_flow_collapsed', collapsed ? '1' : '0');
-    });
-}
 
 // ── Inspect Panel ──────────────────────────────────────────────────
 let inspectPollTimer = null;
